@@ -17,7 +17,7 @@ from .tmux import (
     set_window_dir,
     split_window,
 )
-from .worktree import prepare_agent_worktree, setup_worktree
+from .worktree import prepare_agent_worktree, resolve_review_target, setup_worktree
 
 
 def run_single(cfg: Config) -> None:
@@ -193,5 +193,59 @@ def run_duo_with_worktrees(cfg: Config) -> None:
         "\u2713 Started claude (left) on %s and codex (right) on %s in window: %s",
         claude_branch,
         codex_branch,
+        window_id,
+    )
+
+
+def run_duo_review(cfg: Config) -> None:
+    if cfg.project_path:
+        project = Path(cfg.project_path)
+        if not project.is_dir():
+            from .output import error_exit
+
+            error_exit("Error: Project directory '%s' does not exist", cfg.project_path)
+        os.chdir(project)
+
+    ensure_git_repo()
+
+    base, claude_branch, claude_path, codex_branch, codex_path = resolve_review_target(cfg.review_base)
+
+    run_init_script(claude_path)
+    if codex_path != claude_path:
+        run_init_script(codex_path)
+
+    window_name = f"{base}-review"
+    window_id = new_window(window_name, claude_path)
+    left_pane = current_pane(window_id)
+    right_pane = split_window(window_id, cwd=codex_path)
+
+    set_window_dir(window_id, claude_path)
+
+    send_keys(left_pane, "C-m")
+    time.sleep(0.1)
+    send_keys(right_pane, "C-m")
+    time.sleep(0.1)
+
+    set_pane_title(left_pane, "claude")
+    set_pane_title(right_pane, "codex")
+
+    review_prompt = cfg.prompt or "Review the completed work, list issues, missing tests, and merge readiness."
+    shared_context = (
+        f"You are reviewing existing work for feature base '{base}'. The claude worktree is located at {claude_path} "
+        f"on branch '{claude_branch}', and the codex worktree is located at {codex_path} on branch '{codex_branch}'. "
+        "Inspect the changes, run git commands as needed, and provide clear feedback on quality, correctness, and next steps."
+    )
+    claude_context = shared_context + " Focus on high-level reasoning, risks, and recommended follow-ups."
+    codex_context = shared_context + " Focus on concrete diffs, reproduction steps, and actionable fixes."
+
+    claude_cmd = build_claude_command(claude_context, review_prompt)
+    codex_cmd = build_codex_command(codex_context, review_prompt, cfg.codex_command_name)
+
+    send_keys(left_pane, claude_cmd, "C-m")
+    send_keys(right_pane, codex_cmd, "C-m")
+
+    success(
+        "\u2713 Started review for base '%s' (claude left, codex right) in window: %s",
+        base,
         window_id,
     )

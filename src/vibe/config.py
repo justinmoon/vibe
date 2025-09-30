@@ -26,3 +26,4 @@ class Config:
     raw_args: List[str] = field(default_factory=list)
     editor: str = DEFAULT_EDITOR
     tmux_socket: Optional[str] = None
+    review_base: Optional[str] = None

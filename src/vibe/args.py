@@ -28,9 +28,11 @@ def parse_args(argv: List[str]) -> Config:
           --list              List all active vibe sessions
           --codex             Use codex agent instead of claude
           --duo               Run both claude and codex in a split tmux window
+          --duo-review        Review an existing claude+codex worktree pair
           --amp               Use amp agent instead of claude
           --oc                Use oc (opencode) agent instead of claude
           --command NAME      Codex command name (only meaningful for codex)
+          --review-base NAME  Explicitly choose duo base when reviewing
           -h, --help          Show this help message
 
         Examples:
@@ -63,9 +65,11 @@ def parse_args(argv: List[str]) -> Config:
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--codex", action="store_true")
     parser.add_argument("--duo", action="store_true")
+    parser.add_argument("--duo-review", action="store_true")
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--oc", action="store_true")
     parser.add_argument("--command", dest="codex_command_name")
+    parser.add_argument("--review-base", dest="review_base")
     parser.add_argument("--tmux-socket", dest="tmux_socket")
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("text", nargs=argparse.REMAINDER)
@@ -92,6 +96,15 @@ def parse_args(argv: List[str]) -> Config:
     elif args.oc:
         agent_cmd = "oc"
 
+    if args.duo and args.duo_review:
+        raise SystemExit("--duo and --duo-review cannot be used together")
+
+    if args.duo_review and agent_cmd != "claude":
+        warning("Warning: --duo-review runs claude + codex and ignores single-agent overrides")
+        agent_cmd = "claude"
+
+    agent_mode = "review" if args.duo_review else ("dual" if args.duo else "single")
+
     cfg = Config(
         session_name=args.session_name,
         project_path=args.project_path,
@@ -102,12 +115,13 @@ def parse_args(argv: List[str]) -> Config:
         from_master=args.from_master,
         list_sessions=args.list,
         agent_cmd=agent_cmd,
-        agent_mode="dual" if args.duo else "single",
+        agent_mode=agent_mode,
         codex_command_name=args.codex_command_name,
         prompt="",
         raw_args=argv,
         editor=os.environ.get("EDITOR", DEFAULT_EDITOR),
         tmux_socket=args.tmux_socket or os.environ.get("VIBE_TMUX_SOCKET"),
+        review_base=args.review_base,
     )
 
     cfg.prompt = gather_prompt(cfg, args.text)

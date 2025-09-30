@@ -95,3 +95,24 @@ def test_list_sessions_shows_vibe_prefix(cli_environment):
     time.sleep(0.2)
     result = run_cli(["--list"], env=cli_environment.env, cwd=Path.cwd())
     assert "vibe-demo" in result.stdout
+
+
+def test_duo_review_reuses_worktrees(cli_environment, git_repo):
+    cli_environment.openai.queue(["phase one", "phase-one"])
+    run_cli(["--duo", "implement feature"], env=cli_environment.env, cwd=git_repo)
+
+    initial_worktrees = _worktree_paths(git_repo)
+    assert any("-claude" in line for line in initial_worktrees)
+    assert any("-codex" in line for line in initial_worktrees)
+
+    review_prompt = "please review the changes"
+    run_cli(["--duo-review", review_prompt], env=cli_environment.env, cwd=git_repo)
+
+    assert _wait_for_log(cli_environment.logs["claude"], review_prompt)
+    assert _wait_for_log(cli_environment.logs["codex"], review_prompt)
+
+    after_worktrees = _worktree_paths(git_repo)
+    assert len(after_worktrees) == len(initial_worktrees)
+
+    titles = _list_pane_titles(cli_environment.socket)
+    assert len(titles) == 2

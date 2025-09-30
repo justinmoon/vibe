@@ -10,7 +10,7 @@ from typing import List
 
 from .args import parse_args
 from .config import Config
-from .run import run_duo, run_single
+from .run import run_duo, run_duo_review, run_single
 from .tmux import (
     attach_session,
     configure_tmux,
@@ -96,6 +96,8 @@ def main(argv: List[str] | None = None) -> None:
     if inside_tmux():
         if cfg.agent_mode == "dual":
             run_duo(cfg)
+        elif cfg.agent_mode == "review":
+            run_duo_review(cfg)
         else:
             run_single(cfg)
     else:
