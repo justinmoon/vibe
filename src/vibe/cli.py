@@ -13,6 +13,7 @@ from .config import Config
 from .run import run_duo, run_single
 from .tmux import (
     attach_session,
+    configure_tmux,
     ensure_tmux_available,
     list_vibe_sessions,
     new_session,
@@ -80,6 +81,7 @@ def main(argv: List[str] | None = None) -> None:
     ensure_tmux_available()
 
     cfg = parse_args(list(sys.argv[1:] if argv is None else argv))
+    configure_tmux(cfg.tmux_socket)
 
     if cfg.list_sessions:
         list_vibe_sessions()

@@ -66,6 +66,7 @@ def parse_args(argv: List[str]) -> Config:
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--oc", action="store_true")
     parser.add_argument("--command", dest="codex_command_name")
+    parser.add_argument("--tmux-socket", dest="tmux_socket")
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("text", nargs=argparse.REMAINDER)
 
@@ -106,6 +107,7 @@ def parse_args(argv: List[str]) -> Config:
         prompt="",
         raw_args=argv,
         editor=os.environ.get("EDITOR", DEFAULT_EDITOR),
+        tmux_socket=args.tmux_socket or os.environ.get("VIBE_TMUX_SOCKET"),
     )
 
     cfg.prompt = gather_prompt(cfg, args.text)

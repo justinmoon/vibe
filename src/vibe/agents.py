@@ -21,13 +21,14 @@ def build_agent_command(
     prompt: str,
     codex_command_name: str | None,
 ) -> str:
+    command_name = os.environ.get(f"VIBE_{agent_cmd.upper()}_BIN", agent_cmd)
     message = context if not prompt else f"{context}\n\n{prompt}"
     fd, temp_path = tempfile.mkstemp(prefix="vibe-msg.")
     os.close(fd)
     temp = Path(temp_path)
     temp.write_text(message)
     quoted_temp = shlex.quote(str(temp))
-    command = f"{agent_cmd} {agent_flags} \"$(cat {quoted_temp})\""
+    command = f"{command_name} {agent_flags} \"$(cat {quoted_temp})\""
     if agent_cmd == "codex" and codex_command_name:
         command = f"{command} {shlex.quote(codex_command_name)}"
     return f"{command} && rm -f {quoted_temp}"

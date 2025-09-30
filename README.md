@@ -47,3 +47,12 @@ The code is split into focused modules:
 - `openai_client.py` – branch naming
 - `run.py` – orchestration logic
 - `agents.py` – command construction for Claude/Codex
+
+
+## Testing
+
+Run the integration suite (real tmux + worktrees) with:
+
+```bash
+uv run --project . --extra test pytest
+```

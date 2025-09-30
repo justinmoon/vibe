@@ -7,6 +7,18 @@ from typing import Iterable, Optional
 
 from .output import error_exit, success, warning
 
+TMUX_SOCKET_ARGS: list[str] = []
+
+
+def configure_tmux(socket: str | None) -> None:
+    """Set the tmux socket arguments used for all future commands."""
+
+    global TMUX_SOCKET_ARGS
+    if socket:
+        TMUX_SOCKET_ARGS = ["-L", socket]
+    else:
+        TMUX_SOCKET_ARGS = []
+
 
 def ensure_tmux_available() -> None:
     if shutil.which("tmux") is None:
@@ -19,7 +31,7 @@ def session_exists(name: str) -> bool:
 
 
 def run_tmux(args: Iterable[str], *, capture: bool = False) -> Optional[str]:
-    cmd = ["tmux", *args]
+    cmd = ["tmux", *TMUX_SOCKET_ARGS, *args]
     if capture:
         return subprocess.check_output(cmd, text=True).strip()
     subprocess.run(cmd, check=True)

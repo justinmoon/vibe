@@ -25,3 +25,4 @@ class Config:
     prompt: str
     raw_args: List[str] = field(default_factory=list)
     editor: str = DEFAULT_EDITOR
+    tmux_socket: Optional[str] = None

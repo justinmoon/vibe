@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import textwrap
 import urllib.error
@@ -10,6 +11,9 @@ from .output import error_exit, warning
 
 
 def fetch_openai_key() -> str | None:
+    env_key = os.environ.get("VIBE_OPENAI_KEY")
+    if env_key:
+        return env_key
     try:
         result = subprocess.run(["op", "read", "op://cli/openai/configs"], capture_output=True, text=True, check=True)
     except (FileNotFoundError, subprocess.CalledProcessError):
@@ -19,7 +23,8 @@ def fetch_openai_key() -> str | None:
 
 
 def openai_chat(api_key: str, system_prompt: str, user_content: str, *, max_tokens: int) -> str:
-    url = "https://api.openai.com/v1/chat/completions"
+    base = os.environ.get("VIBE_OPENAI_API_BASE", "https://api.openai.com")
+    url = f"{base.rstrip('/')}/v1/chat/completions"
     payload = {
         "model": "gpt-4o",
         "messages": [
