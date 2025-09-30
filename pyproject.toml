@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vibe"
+version = "0.1.0"
+description = "Tmux session manager and AI coding agent launcher"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Justin" }]
+dependencies = []
+
+[project.scripts]
+vibe = "vibe.cli:main"
+
+[tool.hatch.build]
+packages = ["src/vibe"]
+
+[tool.uv]
+package = true
