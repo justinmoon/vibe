@@ -5,12 +5,21 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import tempfile
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python <3.11 fallback
+    try:
+        import tomli as tomllib  # type: ignore[no-redef]
+    except ModuleNotFoundError:  # pragma: no cover
+        tomllib = None
 
 from .agents import build_claude_command, build_codex_command
 
@@ -43,6 +52,10 @@ DEFAULT_HEADERS: Dict[str, str] = {
     "rules/workflows/duo.md": "# Duo Workflow Notes",
     "rules/workflows/dio-review.md": "# Duo Review Workflow Notes",
 }
+
+AUTO_START_MARK = "<!-- vibe:auto:start -->"
+AUTO_END_MARK = "<!-- vibe:auto:end -->"
+AUTO_NOTICE = "<!-- Managed by `vibe rules apply`; edits below will be overwritten. -->"
 
 GENERAL_SECTION_KEYWORDS = (
     "general",
@@ -83,6 +96,123 @@ class MarkdownSection:
     title: str
     level: int
     body: str
+
+
+@dataclass
+class OutputTarget:
+    key: str
+    label: str
+    relative_path: Path
+    defaults: List[str]
+
+
+@dataclass
+class ApplyConfig:
+    registry_root: Path
+    project_root: Path
+    outputs: List[OutputTarget]
+
+
+def _default_output_targets() -> List[OutputTarget]:
+    return [
+        OutputTarget(
+            key="agents",
+            label="AGENTS",
+            relative_path=Path("AGENTS.md"),
+            defaults=[
+                "rules/base.md",
+                "rules/agents/codex.md",
+            ],
+        ),
+        OutputTarget(
+            key="claude",
+            label="CLAUDE",
+            relative_path=Path("CLAUDE.md"),
+            defaults=[
+                "rules/base.md",
+                "rules/agents/claude.md",
+            ],
+        ),
+    ]
+
+
+def _load_apply_config(config_path: Path) -> ApplyConfig:
+    config_dir = config_path.parent.resolve() if config_path else Path.cwd()
+    project_root = config_dir
+    registry_root = (config_dir / "vibe-rules").resolve()
+    outputs = _default_output_targets()
+
+    if config_path and config_path.exists():
+        with config_path.open("rb") as fh:
+            data = tomllib.load(fh)
+
+        project_cfg: Dict[str, object] = data.get("project", {}) if isinstance(data, dict) else {}
+
+        if "root" in project_cfg:
+            project_root = (config_dir / Path(project_cfg["root"])).resolve()
+        else:
+            project_root = config_dir
+
+        if "registry" in project_cfg:
+            registry_root = (config_dir / Path(project_cfg["registry"])).resolve()
+        else:
+            registry_root = (project_root / "vibe-rules").resolve()
+
+        raw_outputs = None
+        if isinstance(data, dict):
+            raw_outputs = data.get("output") or data.get("outputs")
+        if raw_outputs:
+            parsed: List[OutputTarget] = []
+            for idx, entry in enumerate(raw_outputs):
+                key = entry.get("key") or entry.get("name") or f"output{idx+1}"
+                label = entry.get("label") or key.upper()
+                path_str = entry.get("path") or entry.get("file") or f"{label}.md"
+                defaults = [str(item) for item in entry.get("defaults", [])]
+                if not defaults:
+                    for default_target in _default_output_targets():
+                        if default_target.key == key:
+                            defaults = list(default_target.defaults)
+                            break
+                parsed.append(
+                    OutputTarget(
+                        key=key,
+                        label=label,
+                        relative_path=Path(path_str),
+                        defaults=defaults,
+                    )
+                )
+            if parsed:
+                outputs = parsed
+
+    return ApplyConfig(
+        registry_root=registry_root,
+        project_root=project_root,
+        outputs=outputs,
+    )
+
+
+def _gather_registry_files(registry_root: Path) -> List[str]:
+    if not registry_root.exists():
+        return []
+    paths: List[str] = []
+    for path in registry_root.rglob("*.md"):
+        if path.is_file():
+            relative = path.relative_to(registry_root).as_posix()
+            paths.append(relative)
+    return sorted(paths)
+
+
+def _warn_missing_defaults(outputs: List[OutputTarget], available: List[str]) -> List[str]:
+    available_set = set(available)
+    warnings: List[str] = []
+    for target in outputs:
+        missing = [default for default in target.defaults if default not in available_set]
+        if missing:
+            joined = ", ".join(missing)
+            warnings.append(
+                f"Warning: {target.label} defaults not found in registry: {joined}",
+            )
+    return warnings
 
 
 class RegistryBuilder:
@@ -327,11 +457,69 @@ def _bootstrap_command(args: argparse.Namespace) -> None:
 
 
 def _apply_command(args: argparse.Namespace) -> None:
-    print(
-        "`vibe rules apply` is not yet implemented. TODO: load project config, "
-        "resolve applicable rule bundles, and synthesize AGENTS.md/CLAUDE.md.",
+    if tomllib is None:
+        print(
+            "Python 3.11+ is required for `tomllib`. Install the `tomli` package "
+            "or upgrade Python to use `vibe rules apply`.",
+        )
+        return
+
+    config_path = args.config.expanduser()
+    config = _load_apply_config(config_path)
+
+    if not config.registry_root.exists():
+        print(
+            f"Registry directory {config.registry_root} does not exist. "
+            "Run `vibe rules bootstrap` first or update the config.",
+        )
+        return
+
+    rule_paths = _gather_registry_files(config.registry_root)
+    if not rule_paths:
+        print(
+            f"No markdown files found under {config.registry_root}. "
+            "Populate the registry before running apply.",
+        )
+        return
+
+    warnings = _warn_missing_defaults(config.outputs, rule_paths)
+    if warnings:
+        for warning in warnings:
+            print(warning)
+
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        print(
+            "Interactive terminal required for the apply TUI. Run the command "
+            "from a TTY-enabled shell.",
+        )
+        return
+
+    initial_selection = {
+        target.key: {path for path in target.defaults if path in rule_paths}
+        for target in config.outputs
+    }
+
+    try:
+        selections = _run_apply_ui(
+            registry_root=config.registry_root,
+            outputs=config.outputs,
+            rule_paths=rule_paths,
+            selection_map=initial_selection,
+        )
+    except _UserAbort:
+        print("Aborted without writing any files.")
+        return
+    except RuntimeError as exc:
+        print(str(exc))
+        return
+
+    _write_selected_rules(
+        registry_root=config.registry_root,
+        project_root=config.project_root,
+        outputs=config.outputs,
+        selections=selections,
+        rule_paths=rule_paths,
     )
-    print(f"Planned config path: {args.config.resolve()}")
 
 
 def _curate_command(args: argparse.Namespace) -> None:
@@ -715,3 +903,222 @@ def _invoke_generic_agent(agent_name: str, instructions: str) -> bool:
         return False
     finally:
         temp.unlink(missing_ok=True)
+
+
+class _UserAbort(Exception):
+    pass
+
+
+def _run_apply_ui(
+    *,
+    registry_root: Path,
+    outputs: List[OutputTarget],
+    rule_paths: List[str],
+    selection_map: Dict[str, Set[str]],
+) -> Dict[str, Set[str]]:
+    import curses
+
+    rule_contents = {
+        path: (registry_root / path).read_text(encoding="utf-8", errors="ignore")
+        for path in rule_paths
+    }
+
+    current_rule = 0
+    current_output = 0
+    list_scroll = 0
+    preview_scroll = 0
+
+    for target in outputs:
+        selection_map.setdefault(target.key, set())
+
+    def clamp(value: int, minimum: int, maximum: int) -> int:
+        return max(minimum, min(value, maximum))
+
+    instructions = (
+        "[↑/↓] move  [space] toggle  [tab] cycle output  [a] all  [n] none  "
+        "[PgUp/PgDn] preview  [w] write  [q] cancel"
+    )
+
+    def draw(stdscr: "curses._CursesWindow") -> Dict[str, Set[str]]:  # type: ignore[name-defined]
+        nonlocal current_rule, current_output, list_scroll, preview_scroll
+        curses.curs_set(0)
+        stdscr.keypad(True)
+
+        while True:
+            stdscr.clear()
+            height, width = stdscr.getmaxyx()
+            if height < 8 or width < 40:
+                stdscr.addstr(0, 0, "Resize terminal (min 8x40) to continue.")
+                stdscr.refresh()
+                ch = stdscr.getch()
+                if ch in (ord("q"), 27):
+                    raise _UserAbort
+                continue
+
+            left_width = min(48, max(28, width // 2))
+            list_height = max(1, height - 4)
+
+            current_output = clamp(current_output, 0, len(outputs) - 1)
+            max_rule_index = max(0, len(rule_paths) - 1)
+            current_rule = clamp(current_rule, 0, max_rule_index)
+
+            active_output = outputs[current_output]
+            selected = selection_map[active_output.key]
+
+            if current_rule < list_scroll:
+                list_scroll = current_rule
+            elif current_rule >= list_scroll + list_height:
+                list_scroll = current_rule - list_height + 1
+
+            stdscr.addstr(
+                0,
+                0,
+                "Outputs: "
+                + "  ".join(
+                    f"[{target.label}]" if idx == current_output else target.label
+                    for idx, target in enumerate(outputs)
+                ),
+            )
+
+            stdscr.hline(1, 0, ord("-"), width)
+
+            visible_rules = rule_paths[list_scroll : list_scroll + list_height]
+            for offset, path in enumerate(visible_rules):
+                row = 2 + offset
+                marker = "[x]" if path in selected else "[ ]"
+                prefix = ">" if (list_scroll + offset) == current_rule else " "
+                truncated = path[: left_width - 6]
+                stdscr.addstr(row, 0, f"{prefix}{marker} {truncated}")
+
+            stdscr.vline(2, left_width, ord("|"), list_height)
+
+            if rule_paths:
+                active_path = rule_paths[current_rule]
+                content_lines = rule_contents.get(active_path, "").splitlines()
+                max_preview_scroll = max(0, len(content_lines) - list_height)
+                preview_scroll = clamp(preview_scroll, 0, max_preview_scroll)
+                preview_slice = content_lines[
+                    preview_scroll : preview_scroll + list_height
+                ]
+                for offset, line in enumerate(preview_slice):
+                    row = 2 + offset
+                    trimmed = line[: max(0, width - left_width - 2)]
+                    stdscr.addstr(row, left_width + 2, trimmed)
+            else:
+                stdscr.addstr(2, left_width + 2, "(No rules found)")
+
+            stdscr.hline(height - 2, 0, ord("-"), width)
+            stdscr.addstr(height - 1, 0, instructions[: width - 1])
+            stdscr.refresh()
+
+            ch = stdscr.getch()
+            if ch in (ord("q"), 27):
+                raise _UserAbort
+            if ch in (curses.KEY_UP, ord("k")):
+                if current_rule > 0:
+                    current_rule -= 1
+                    preview_scroll = 0
+                continue
+            if ch in (curses.KEY_DOWN, ord("j")):
+                if current_rule < len(rule_paths) - 1:
+                    current_rule += 1
+                    preview_scroll = 0
+                continue
+            if ch == curses.KEY_PPAGE:
+                preview_scroll = max(0, preview_scroll - max(1, list_height // 2))
+                continue
+            if ch == curses.KEY_NPAGE:
+                preview_scroll = min(
+                    preview_scroll + max(1, list_height // 2),
+                    max(0, len(rule_contents.get(rule_paths[current_rule], "").splitlines()) - list_height),
+                )
+                continue
+            if ch in (curses.KEY_TAB, 9):
+                current_output = (current_output + 1) % len(outputs)
+                preview_scroll = 0
+                continue
+            if ch == curses.KEY_BTAB:
+                current_output = (current_output - 1) % len(outputs)
+                preview_scroll = 0
+                continue
+            if ch in (ord(" "), ord("x"), ord("X"), curses.KEY_ENTER, 10, 13):
+                if rule_paths:
+                    active_path = rule_paths[current_rule]
+                    if active_path in selected:
+                        selected.remove(active_path)
+                    else:
+                        selected.add(active_path)
+                continue
+            if ch in (ord("a"), ord("A")):
+                selected.update(rule_paths)
+                continue
+            if ch in (ord("n"), ord("N")):
+                selected.clear()
+                continue
+            if ch in (ord("w"), ord("s")):
+                return {key: set(paths) for key, paths in selection_map.items()}
+
+    return curses.wrapper(draw)
+
+
+def _write_selected_rules(
+    *,
+    registry_root: Path,
+    project_root: Path,
+    outputs: List[OutputTarget],
+    selections: Dict[str, Set[str]],
+    rule_paths: List[str],
+) -> None:
+    ordered_lookup = {path: idx for idx, path in enumerate(rule_paths)}
+    for target in outputs:
+        selected_paths = selections.get(target.key, set())
+        ordered = sorted(selected_paths, key=lambda path: ordered_lookup.get(path, 0))
+        sections: List[str] = []
+        for path in ordered:
+            file_path = registry_root / path
+            if not file_path.exists():
+                continue
+            sections.append(file_path.read_text(encoding="utf-8", errors="ignore").strip())
+        generated = _render_generated_rules(sections)
+
+        destination = (project_root / target.relative_path).resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        manual_prefix = _read_manual_prefix(destination, target.label)
+        manual_block = manual_prefix.rstrip("\n")
+
+        parts: List[str] = []
+        if manual_block:
+            parts.append(manual_block)
+            parts.append("")
+        parts.extend([AUTO_START_MARK, AUTO_NOTICE])
+        if generated:
+            parts.extend(["", generated])
+        else:
+            parts.extend(["", "<!-- No rules selected yet. -->"])
+        parts.extend(["", AUTO_END_MARK, ""])
+        output_text = "\n".join(parts)
+        destination.write_text(output_text, encoding="utf-8")
+
+
+def _read_manual_prefix(file_path: Path, label: str) -> str:
+    if not file_path.exists():
+        template = [
+            f"# {label} Notes",
+            "",
+            "<!-- Everything above this marker is maintained manually. -->",
+        ]
+        return "\n".join(template)
+
+    text = file_path.read_text(encoding="utf-8", errors="ignore")
+    if AUTO_START_MARK in text:
+        prefix = text.split(AUTO_START_MARK)[0]
+        return prefix.rstrip("\n")
+    return text.rstrip("\n")
+
+
+def _render_generated_rules(sections: List[str]) -> str:
+    cleaned = [section.strip() for section in sections if section.strip()]
+    if not cleaned:
+        return ""
+    return "\n\n".join(cleaned)
