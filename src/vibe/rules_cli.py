@@ -139,7 +139,7 @@ def _default_output_targets() -> List[OutputTarget]:
 def _load_apply_config(config_path: Path) -> ApplyConfig:
     config_dir = config_path.parent.resolve() if config_path else Path.cwd()
     project_root = config_dir
-    registry_root = (config_dir / "vibe-rules").resolve()
+    registry_root = (Path.home() / "code" / "vibe-rules").resolve()
     outputs = _default_output_targets()
 
     if config_path and config_path.exists():
@@ -156,7 +156,7 @@ def _load_apply_config(config_path: Path) -> ApplyConfig:
         if "registry" in project_cfg:
             registry_root = (config_dir / Path(project_cfg["registry"])).resolve()
         else:
-            registry_root = (project_root / "vibe-rules").resolve()
+            registry_root = (Path.home() / "code" / "vibe-rules").resolve()
 
         raw_outputs = None
         if isinstance(data, dict):
