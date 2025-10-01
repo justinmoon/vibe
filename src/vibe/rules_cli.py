@@ -3,12 +3,16 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shlex
 import subprocess
+import tempfile
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from shutil import which
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+from .agents import build_claude_command, build_codex_command
 
 SKIP_DIR_NAMES = {
     ".git",
@@ -192,6 +196,42 @@ def handle_rules_command(argv: Sequence[str]) -> None:
     )
     apply_parser.set_defaults(func=_apply_command)
 
+    curate_parser = subparsers.add_parser(
+        "curate",
+        help="Launch configured agents to curate the rules registry",
+    )
+    curate_parser.add_argument(
+        "--registry",
+        type=Path,
+        default=Path.cwd() / "vibe-rules",
+        help="Registry directory to curate",
+    )
+    curate_parser.add_argument(
+        "--source-root",
+        type=Path,
+        default=Path.home() / "code",
+        help="Root directory containing candidate repositories",
+    )
+    curate_parser.add_argument(
+        "--agent",
+        dest="agents",
+        action="append",
+        help=(
+            "Agent command to invoke. Can be specified multiple times. "
+            "Defaults to trying agentds, claude, and codex in that order."
+        ),
+    )
+    curate_parser.add_argument(
+        "--codex-command",
+        dest="codex_command",
+        help="Codex command name to use when invoking codex (default: vibe-rules-curate)",
+    )
+    curate_parser.add_argument(
+        "--context-note",
+        help="Additional note appended to the agent context instructions",
+    )
+    curate_parser.set_defaults(func=_curate_command)
+
     args = parser.parse_args(list(argv))
     handler = getattr(args, "func", None)
     if handler is None:
@@ -292,6 +332,48 @@ def _apply_command(args: argparse.Namespace) -> None:
         "resolve applicable rule bundles, and synthesize AGENTS.md/CLAUDE.md.",
     )
     print(f"Planned config path: {args.config.resolve()}")
+
+
+def _curate_command(args: argparse.Namespace) -> None:
+    registry_root = args.registry.expanduser().resolve()
+    source_root = args.source_root.expanduser().resolve()
+    additional_note = (args.context_note or "").strip()
+
+    if not registry_root.exists():
+        print(
+            "Registry directory does not exist yet. Run `vibe rules bootstrap` "
+            "before curating.",
+        )
+        return
+
+    instructions = _build_curation_instructions(
+        registry_root=registry_root,
+        source_root=source_root,
+        extra_note=additional_note,
+    )
+
+    agent_names = args.agents if args.agents else ["agentds", "claude", "codex"]
+    any_invoked = False
+    for agent in agent_names:
+        normalized = _normalize_agent_name(agent)
+        if normalized == "claude":
+            command = build_claude_command(instructions, "")
+            if _invoke_agent_command(command, "claude"):
+                any_invoked = True
+        elif normalized == "codex":
+            command_name = args.codex_command or "vibe-rules-curate"
+            command = build_codex_command(instructions, "", command_name)
+            if _invoke_agent_command(command, "codex"):
+                any_invoked = True
+        else:
+            if _invoke_generic_agent(normalized, instructions):
+                any_invoked = True
+    if not any_invoked:
+        tried = ", ".join(agent_names)
+        print(
+            "No agents were invoked. Ensure at least one of "
+            f"{tried} is installed or specify a custom agent via --agent.",
+        )
 
 
 def _discover_git_repos(root: Path) -> Iterable[Path]:
@@ -551,3 +633,85 @@ def _slugify(text: str) -> str:
     if len(slug) > 48:
         slug = slug[:48].rstrip("-")
     return slug or "topic"
+
+
+def _build_curation_instructions(
+    registry_root: Path,
+    source_root: Path,
+    extra_note: str,
+) -> str:
+    note = f"\n\nAdditional context: {extra_note}" if extra_note else ""
+    return (
+        "You are curating reusable agent guidance for Justin Moon."
+        "\n\n"
+        f"Registry directory: {registry_root}\n"
+        f"Candidate repo root: {source_root}\n"
+        "Goal: refine the seeded registry (base, agent, topic files) into a "
+        "streamlined, non-duplicative set of rules appropriate for reuse across "
+        "Justin's active projects. Work directly in the registry files."
+        "\n\nImportant constraints:\n"
+        "- Only use guidance from repositories where Justin Moon is a primary "
+        "contributor (top committers).\n"
+        "- Do not edit the original AGENTS.md or CLAUDE.md files in those repositories.\n"
+        "- Preserve source attribution comments (`<!-- Source: repo@commit path -->`).\n"
+        "- Merge duplicate content and tighten wording while keeping actionable details.\n"
+        "- Leave TODO comments for areas that still need manual follow-up.\n"
+        "\nHelpful commands:\n"
+        f"  rg --files -g 'AGENTS.md' {source_root}\n"
+        f"  rg --files -g 'CLAUDE.md' {source_root}\n"
+        "  git -C <repo> shortlog -sn HEAD\n"
+        "  git -C <repo> log -n 1 --format='%H' -- <path>\n"
+        "  vibe rules bootstrap --dry-run\n"
+        "  vibe rules bootstrap (to regenerate from scratch if needed)\n"
+        f"  ls -R {registry_root}\n"
+        "\nDeliverables:\n"
+        "- Curated markdown in the registry directory with redundant material "
+        "consolidated.\n"
+        "- Topic files grouped logically (rename or split as needed).\n"
+        "- Optional notes about further work captured as HTML comments."
+        f"{note}\n"
+    )
+
+
+def _normalize_agent_name(agent: str) -> str:
+    mapping = {
+        "cc": "claude",
+        "claude-code": "claude",
+        "claude_code": "claude",
+        "codex": "codex",
+        "agentds": "agentds",
+    }
+    normalized = agent.strip().lower()
+    return mapping.get(normalized, normalized)
+
+
+def _invoke_agent_command(command: str, label: str) -> bool:
+    try:
+        subprocess.run(command, shell=True, check=True)
+        return True
+    except FileNotFoundError:
+        print(f"Failed to launch {label}: command not found.")
+    except subprocess.CalledProcessError as exc:
+        print(f"{label} exited with status {exc.returncode}.")
+    return False
+
+
+def _invoke_generic_agent(agent_name: str, instructions: str) -> bool:
+    binary = os.environ.get(f"VIBE_{agent_name.upper()}_BIN") or which(agent_name)
+    if not binary:
+        print(f"Skipping {agent_name}: not found in PATH.")
+        return False
+
+    fd, tmp_path = tempfile.mkstemp(prefix="vibe-curate.", suffix=".txt")
+    os.close(fd)
+    temp = Path(tmp_path)
+    temp.write_text(instructions, encoding="utf-8")
+    try:
+        command = f"{binary} \"$(cat {shlex.quote(str(temp))})\""
+        subprocess.run(command, shell=True, check=True)
+        return True
+    except subprocess.CalledProcessError as exc:
+        print(f"{agent_name} exited with status {exc.returncode}.")
+        return False
+    finally:
+        temp.unlink(missing_ok=True)
