@@ -233,8 +233,11 @@ def _ingest_command(args: argparse.Namespace) -> None:
         return
 
     exclude_root = registry_root if registry_root.exists() else None
-    entries, source_files = _collect_unique_lines(source_root, exclude_root=exclude_root)
-    if not entries:
+    blocks, source_files, unique_lines = _collect_unique_lines(
+        source_root,
+        exclude_root=exclude_root,
+    )
+    if not blocks:
         print("No AGENTS.md or CLAUDE.md files were found under the source root.")
         return
 
@@ -242,16 +245,23 @@ def _ingest_command(args: argparse.Namespace) -> None:
     with output_path.open("w", encoding="utf-8") as fh:
         fh.write("# Ingested Agent Guidance\n\n")
         fh.write(
-            f"Harvested {len(entries)} unique lines from {len(source_files)} files under {source_root}.\n\n",
+            f"Harvested {unique_lines} unique lines from {len(source_files)} files under {source_root}.\n\n",
         )
         fh.write("Process each line, copy what matters into `rules/`, and delete it when done.\n\n")
         fh.write("---\n\n")
-        for text, sources in entries:
-            fh.write(f"<!-- Sources: {', '.join(sorted(sources))} -->\n")
-            fh.write(f"{text}\n\n")
+        first_block = True
+        for rel_path, lines in blocks:
+            if not lines:
+                continue
+            if not first_block:
+                fh.write("\n")
+            first_block = False
+            fh.write(f"<!-- Source: {rel_path} -->\n")
+            for line in lines:
+                fh.write(f"{line}\n")
 
     print(
-        f"Wrote {len(entries)} unique lines from {len(source_files)} files to {output_path}",
+        f"Wrote {unique_lines} unique lines from {len(source_files)} files to {output_path}",
     )
 
 
@@ -259,11 +269,12 @@ def _collect_unique_lines(
     source_root: Path,
     *,
     exclude_root: Optional[Path] = None,
-) -> tuple[List[tuple[str, Set[str]]], Set[str]]:
-    seen: Dict[str, int] = {}
-    entries: List[Dict[str, object]] = []
+) -> tuple[List[tuple[str, List[str]]], Set[str], int]:
+    seen: Set[str] = set()
+    blocks: List[tuple[str, List[str]]] = []
     source_files: Set[str] = set()
     excluded = exclude_root.resolve() if exclude_root else None
+    unique_count = 0
 
     for file_path in _iter_rule_files(source_root):
         if excluded and _is_relative_to(file_path, excluded):
@@ -274,31 +285,22 @@ def _collect_unique_lines(
             text = file_path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        new_lines: List[str] = []
         for raw_line in text.splitlines():
             stripped = raw_line.strip()
             if not stripped:
                 continue
             normalized = stripped
-            record_index = seen.get(normalized)
-            if record_index is None:
-                entries.append({
-                    "text": raw_line.rstrip(),
-                    "sources": {rel_path},
-                })
-                seen[normalized] = len(entries) - 1
-            else:
-                entry = entries[record_index]
-                sources = entry["sources"]
-                if isinstance(sources, set):
-                    sources.add(rel_path)
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            line_text = raw_line.rstrip()
+            new_lines.append(line_text)
+            unique_count += 1
+        if new_lines:
+            blocks.append((rel_path, new_lines))
 
-    ordered_entries: List[tuple[str, Set[str]]] = []
-    for entry in entries:
-        line_text = str(entry["text"])
-        sources = entry["sources"]
-        if isinstance(sources, set):
-            ordered_entries.append((line_text, sources))
-    return ordered_entries, source_files
+    return blocks, source_files, unique_count
 
 
 def _iter_rule_files(root: Path) -> Sequence[Path]:
