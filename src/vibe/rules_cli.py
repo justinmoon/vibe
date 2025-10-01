@@ -33,12 +33,17 @@ SKIP_DIR_NAMES = {
     "bazel-bin",
     "bazel-out",
     "bazel-testlogs",
-    "worktrees",
 }
 
 AUTO_START_MARK = "<!-- vibe:auto:start -->"
 AUTO_END_MARK = "<!-- vibe:auto:end -->"
 AUTO_NOTICE = "<!-- Managed by `vibe rules apply`; edits below will be overwritten. -->"
+
+REGISTRY_FILENAMES = {
+    "_base.md",
+    "_claude.md",
+    "_codex.md",
+}
 
 
 @dataclass
@@ -133,15 +138,8 @@ def _default_registry_root() -> Path:
 
 def _bootstrap_command(args: argparse.Namespace) -> None:
     registry_root = args.registry.expanduser().resolve()
-    registry_root.mkdir(parents=True, exist_ok=True)
-
-    directories = [
-        Path("rules"),
-        Path("rules/agents"),
-        Path("rules/languages"),
-        Path("rules/workflows"),
-        Path("rules/topics"),
-    ]
+    rules_dir = registry_root / "rules"
+    rules_dir.mkdir(parents=True, exist_ok=True)
 
     templates: Dict[Path, str] = {
         Path("README.md"): textwrap.dedent(
@@ -150,16 +148,14 @@ def _bootstrap_command(args: argparse.Namespace) -> None:
 
             This directory stores reusable guidance for Justin's projects.
 
-            Start by editing the markdown files under `rules/`.
-
-            Suggested flow:
-            1. Run `vibe rules ingest` to collect raw lines into `INGEST.md`.
-            2. Move the useful guidance into the appropriate files under `rules/`.
+            Action plan:
+            1. Run `vibe rules ingest` to collect raw agent guidance into `INGEST.md`.
+            2. Curate the content into the markdown files under `rules/`.
             3. Inside a project, run `vibe rules apply` to build AGENTS.md / CLAUDE.md.
             """
         ).strip()
         + "\n",
-        Path("rules/base.md"): textwrap.dedent(
+        Path("rules/_base.md"): textwrap.dedent(
             """\
             # Shared Base Guidelines
 
@@ -167,7 +163,7 @@ def _bootstrap_command(args: argparse.Namespace) -> None:
             """
         ).strip()
         + "\n",
-        Path("rules/agents/claude.md"): textwrap.dedent(
+        Path("rules/_claude.md"): textwrap.dedent(
             """\
             # Claude Agent Guidance
 
@@ -175,7 +171,7 @@ def _bootstrap_command(args: argparse.Namespace) -> None:
             """
         ).strip()
         + "\n",
-        Path("rules/agents/codex.md"): textwrap.dedent(
+        Path("rules/_codex.md"): textwrap.dedent(
             """\
             # Codex Agent Guidance
 
@@ -184,12 +180,6 @@ def _bootstrap_command(args: argparse.Namespace) -> None:
         ).strip()
         + "\n",
     }
-
-    created_dirs: List[str] = []
-    for rel_dir in directories:
-        path = registry_root / rel_dir
-        path.mkdir(parents=True, exist_ok=True)
-        created_dirs.append(rel_dir.as_posix())
 
     created_files: List[str] = []
     overwritten_files: List[str] = []
@@ -208,10 +198,6 @@ def _bootstrap_command(args: argparse.Namespace) -> None:
         destination.write_text(content, encoding="utf-8")
 
     print(f"Registry scaffold ready at {registry_root}")
-    if created_dirs:
-        print("Ensured directories:")
-        for entry in created_dirs:
-            print(f"  - {entry}")
     if created_files:
         print("Created example files:")
         for entry in created_files:
@@ -410,13 +396,13 @@ def _default_output_targets() -> List[OutputTarget]:
             key="agents",
             label="AGENTS",
             relative_path=Path("AGENTS.md"),
-            defaults=["rules/base.md", "rules/agents/codex.md"],
+            defaults=["rules/_base.md", "rules/_codex.md"],
         ),
         OutputTarget(
             key="claude",
             label="CLAUDE",
             relative_path=Path("CLAUDE.md"),
-            defaults=["rules/base.md", "rules/agents/claude.md"],
+            defaults=["rules/_base.md", "rules/_claude.md"],
         ),
     ]
 
@@ -455,7 +441,11 @@ def _load_apply_config(config_path: Path) -> ApplyConfig:
                 key = str(entry.get("key") or entry.get("name") or f"output{idx+1}")
                 label = str(entry.get("label") or key.upper())
                 path_str = str(entry.get("path") or entry.get("file") or f"{label}.md")
-                defaults = [str(item) for item in entry.get("defaults", []) if isinstance(item, (str, Path))]
+                defaults = [
+                    str(item)
+                    for item in entry.get("defaults", [])
+                    if isinstance(item, (str, Path))
+                ]
                 if not defaults:
                     for default_target in _default_output_targets():
                         if default_target.key == key:
@@ -480,13 +470,15 @@ def _load_apply_config(config_path: Path) -> ApplyConfig:
 
 
 def _gather_registry_files(registry_root: Path) -> List[str]:
-    if not registry_root.exists():
+    rules_dir = registry_root / "rules"
+    if not rules_dir.exists():
         return []
     paths: List[str] = []
-    for path in registry_root.rglob("*.md"):
+    for path in rules_dir.glob("*.md"):
         if path.is_file():
             paths.append(path.relative_to(registry_root).as_posix())
-    return sorted(paths)
+    paths = sorted(paths)
+    return paths
 
 
 def _warn_missing_defaults(outputs: List[OutputTarget], available: List[str]) -> List[str]:
