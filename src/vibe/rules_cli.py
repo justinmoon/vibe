@@ -923,6 +923,13 @@ def _run_apply_ui(
         for path in rule_paths
     }
 
+    tab_keys = {9}
+    if hasattr(curses, "KEY_TAB"):
+        tab_keys.add(getattr(curses, "KEY_TAB"))
+    back_tab_keys = {353}  # Common value for shift+tab
+    if hasattr(curses, "KEY_BTAB"):
+        back_tab_keys.add(getattr(curses, "KEY_BTAB"))
+
     current_rule = 0
     current_output = 0
     list_scroll = 0
@@ -1033,11 +1040,11 @@ def _run_apply_ui(
                     max(0, len(rule_contents.get(rule_paths[current_rule], "").splitlines()) - list_height),
                 )
                 continue
-            if ch in (curses.KEY_TAB, 9):
+            if ch in tab_keys:
                 current_output = (current_output + 1) % len(outputs)
                 preview_scroll = 0
                 continue
-            if ch == curses.KEY_BTAB:
+            if ch in back_tab_keys:
                 current_output = (current_output - 1) % len(outputs)
                 preview_scroll = 0
                 continue
