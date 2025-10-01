@@ -78,9 +78,17 @@ def run_with_tmux(session_name: str, cfg: Config) -> None:
 
 
 def main(argv: List[str] | None = None) -> None:
+    args = list(sys.argv[1:] if argv is None else argv)
+
+    if args and args[0] == "rules":
+        from .rules_cli import handle_rules_command
+
+        handle_rules_command(args[1:])
+        return
+
     ensure_tmux_available()
 
-    cfg = parse_args(list(sys.argv[1:] if argv is None else argv))
+    cfg = parse_args(args)
     configure_tmux(cfg.tmux_socket)
 
     if cfg.list_sessions:
