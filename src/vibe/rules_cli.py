@@ -272,7 +272,7 @@ def _collect_unique_lines(
         source_files.add(rel_path)
         try:
             text = file_path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
+        except (UnicodeDecodeError, OSError):
             continue
         for raw_line in text.splitlines():
             stripped = raw_line.strip()
@@ -307,12 +307,19 @@ def _iter_rule_files(root: Path) -> Sequence[Path]:
         return matches
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [
-            d for d in dirnames if d not in SKIP_DIR_NAMES and not d.startswith(".")
+            d
+            for d in dirnames
+            if d not in SKIP_DIR_NAMES
+            and not d.startswith(".")
+            and not Path(dirpath, d).is_symlink()
         ]
         for name in filenames:
             lower = name.lower()
             if lower in {"agents.md", "claude.md"}:
-                matches.append(Path(dirpath) / name)
+                candidate = Path(dirpath) / name
+                if candidate.is_symlink():
+                    continue
+                matches.append(candidate)
     matches.sort()
     return matches
 
