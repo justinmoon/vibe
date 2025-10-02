@@ -63,10 +63,10 @@ def handle_merge_command(argv: Iterable[str]) -> None:
     keeping_dirty = keeping_path.exists() and _worktree_dirty(keeping_path)
     losing_dirty = losing_path.exists() and _worktree_dirty(losing_path)
 
-    if losing_dirty and not args.force:
+    if keeping_dirty and not args.force:
         error_exit(
-            "Unstaged changes detected in branch %s. Commit or stash before running `vibe merge`, or re-run with --force.",
-            losing_branch,
+            "Unstaged changes detected in the branch you plan to keep (%s). Commit or stash first, or re-run with --force.",
+            keeping_branch,
         )
 
     windows_to_kill: List[str] = []
