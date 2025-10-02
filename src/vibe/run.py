@@ -245,13 +245,21 @@ def run_duo_review(cfg: Config) -> None:
     shared_context = (
         f"You are reviewing existing work for feature base '{base}'. The claude worktree is located at {claude_path} "
         f"on branch '{claude_branch}', and the codex worktree is located at {codex_path} on branch '{codex_branch}'. "
-        "Inspect the changes, run git commands as needed, and provide clear feedback on quality, correctness, and next steps."
+        "Inspect the changes, run git commands as needed, and provide clear feedback on quality, correctness, and next steps."\
+        " Compare both branches: identify which implementation is stronger, where one outperforms the other, and whether "
+        "a hybrid (combining specific commits or files) would deliver the best result."
     )
     if original_prompt:
         shared_context += f"\n\nOriginal prompt:\n{original_prompt}"
 
-    claude_context = shared_context + " Focus on high-level reasoning, risks, and recommended follow-ups."
-    codex_context = shared_context + " Focus on concrete diffs, reproduction steps, and actionable fixes."
+    claude_context = shared_context + (
+        " Focus on high-level reasoning, risks, and recommended follow-ups."
+        " Make an explicit recommendation: choose claude's branch, codex's branch, or a mix, and justify why."
+    )
+    codex_context = shared_context + (
+        " Focus on concrete diffs, reproduction steps, and actionable fixes."
+        " Identify exact commits/files to cherry-pick if a hybrid approach is best, and note any merge hazards."
+    )
 
     claude_cmd = build_claude_command(claude_context, review_prompt)
     codex_cmd = build_codex_command(codex_context, review_prompt, cfg.codex_command_name)
