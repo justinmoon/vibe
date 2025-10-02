@@ -60,20 +60,13 @@ def handle_merge_command(argv: Iterable[str]) -> None:
     losing_branch, losing_path = _losing_branch(target, keep)
     keeping_branch, keeping_path = _keeping_branch(target, keep)
 
-    dirty = []
-    for branch, path in (
-        (target.claude_branch, target.claude_path),
-        (target.codex_branch, target.codex_path),
-    ):
-        if not path.exists():
-            continue
-        if _worktree_dirty(path):
-            dirty.append(branch)
+    keeping_dirty = keeping_path.exists() and _worktree_dirty(keeping_path)
+    losing_dirty = losing_path.exists() and _worktree_dirty(losing_path)
 
-    if dirty and not args.force:
+    if losing_dirty and not args.force:
         error_exit(
-            "Unstaged changes detected in: %s. Commit or stash before running `vibe merge`, or re-run with --force.",
-            ", ".join(dirty),
+            "Unstaged changes detected in branch %s. Commit or stash before running `vibe merge`, or re-run with --force.",
+            losing_branch,
         )
 
     windows_to_kill: List[str] = []
@@ -90,7 +83,8 @@ def handle_merge_command(argv: Iterable[str]) -> None:
         losing_path=losing_path,
         keeping_branch=keeping_branch,
         keeping_path=keeping_path,
-        dirty=dirty,
+        keeping_dirty=keeping_dirty,
+        losing_dirty=losing_dirty,
         windows_to_kill=windows_to_kill,
     )
 
@@ -209,7 +203,8 @@ def _print_summary(
     losing_path: Path,
     keeping_branch: str,
     keeping_path: Path,
-    dirty: List[str],
+    keeping_dirty: bool,
+    losing_dirty: bool,
     windows_to_kill: List[str],
 ) -> None:
     print("\n========================================")
@@ -218,8 +213,10 @@ def _print_summary(
     print(f"Lose branch: {losing_branch}")
     print(f"Keep path:  {keeping_path}")
     print(f"Lose path:  {losing_path}")
-    if dirty:
-        print(f"\nUnstaged changes detected in: {', '.join(dirty)}")
+    if keeping_dirty:
+        print(f"\nNote: keeping branch {keeping_branch} has unstaged changes (will remain intact).")
+    if losing_dirty:
+        print(f"\nWarning: losing branch {losing_branch} has unstaged changes (will be discarded).")
     if windows_to_kill:
         print("\nTmux windows to close:")
         for window_id in windows_to_kill:
