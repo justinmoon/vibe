@@ -9,6 +9,10 @@ from .config import Config, WORKTREE_BASE
 from .gitops import determine_source_ref
 from .output import error_exit, success, warning
 
+PROMPT_SUFFIX = ".prompt"
+
+PROMPT_SUFFIX = ".prompt"
+
 
 def ensure_worktree_dir() -> None:
     if not WORKTREE_BASE.exists():
@@ -196,3 +200,29 @@ def resolve_review_target(base_hint: Optional[str]) -> Tuple[str, Path, str, Pat
         "Error: Multiple duo worktrees found (%s). Provide --review-base to disambiguate.",
         ", ".join(sorted(targets.keys())),
     )
+
+
+def _prompt_path(base: str) -> Path:
+    ensure_worktree_dir()
+    return WORKTREE_BASE / f"{base}{PROMPT_SUFFIX}"
+
+
+def write_duo_prompt(base: str, prompt: str) -> None:
+    if not prompt:
+        return
+    try:
+        _prompt_path(base).write_text(prompt.strip() + "\n", encoding="utf-8")
+    except OSError:
+        warning("Failed to persist prompt metadata for base '%s'", base)
+
+
+def read_duo_prompt(base: str) -> Optional[str]:
+    path = _prompt_path(base)
+    if not path.exists():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+        return content or None
+    except OSError:
+        warning("Failed to read prompt metadata for base '%s'", base)
+        return None

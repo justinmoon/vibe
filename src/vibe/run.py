@@ -8,7 +8,7 @@ from .agents import build_agent_command, build_claude_command, build_codex_comma
 from .config import Config
 from .gitops import current_branch, determine_source_ref, ensure_git_repo, pull_latest_changes, run_init_script
 from .openai_client import generate_branch_name
-from .output import success
+from .output import info, success
 from .tmux import (
     current_pane,
     new_window,
@@ -17,7 +17,13 @@ from .tmux import (
     set_window_dir,
     split_window,
 )
-from .worktree import prepare_agent_worktree, resolve_review_target, setup_worktree
+from .worktree import (
+    prepare_agent_worktree,
+    read_duo_prompt,
+    resolve_review_target,
+    setup_worktree,
+    write_duo_prompt,
+)
 
 
 def run_single(cfg: Config) -> None:
@@ -156,6 +162,8 @@ def run_duo_with_worktrees(cfg: Config) -> None:
     claude_worktree = prepare_agent_worktree("claude", claude_branch, source_ref)
     codex_worktree = prepare_agent_worktree("codex", codex_branch, source_ref)
 
+    write_duo_prompt(base_branch, cfg.prompt)
+
     run_init_script(claude_worktree)
     if codex_worktree != claude_worktree:
         run_init_script(codex_worktree)
@@ -210,6 +218,8 @@ def run_duo_review(cfg: Config) -> None:
 
     base, claude_branch, claude_path, codex_branch, codex_path = resolve_review_target(cfg.review_base)
 
+    original_prompt = read_duo_prompt(base)
+
     run_init_script(claude_path)
     if codex_path != claude_path:
         run_init_script(codex_path)
@@ -230,11 +240,16 @@ def run_duo_review(cfg: Config) -> None:
     set_pane_title(right_pane, "codex")
 
     review_prompt = cfg.prompt or "Review the completed work, list issues, missing tests, and merge readiness."
+    if not cfg.prompt and original_prompt:
+        info("Original duo prompt: %s", original_prompt)
     shared_context = (
         f"You are reviewing existing work for feature base '{base}'. The claude worktree is located at {claude_path} "
         f"on branch '{claude_branch}', and the codex worktree is located at {codex_path} on branch '{codex_branch}'. "
         "Inspect the changes, run git commands as needed, and provide clear feedback on quality, correctness, and next steps."
     )
+    if original_prompt:
+        shared_context += f"\n\nOriginal prompt:\n{original_prompt}"
+
     claude_context = shared_context + " Focus on high-level reasoning, risks, and recommended follow-ups."
     codex_context = shared_context + " Focus on concrete diffs, reproduction steps, and actionable fixes."
 
