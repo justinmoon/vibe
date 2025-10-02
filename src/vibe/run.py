@@ -241,7 +241,7 @@ def run_duo_review(cfg: Config) -> None:
 
     review_prompt = cfg.prompt or "Review the completed work, list issues, missing tests, and merge readiness."
     if not cfg.prompt and original_prompt:
-        info("Original duo prompt: %s", original_prompt)
+        info("Original duo prompt:\n%s", original_prompt)
     shared_context = (
         f"You are reviewing existing work for feature base '{base}'. The claude worktree is located at {claude_path} "
         f"on branch '{claude_branch}', and the codex worktree is located at {codex_path} on branch '{codex_branch}'. "
@@ -250,7 +250,9 @@ def run_duo_review(cfg: Config) -> None:
         "a hybrid (combining specific commits or files) would deliver the best result."
     )
     if original_prompt:
-        shared_context += f"\n\nOriginal prompt:\n{original_prompt}"
+        shared_context += "\n\nOriginal prompt:\n```\n" + original_prompt.strip() + "\n```"
+    if cfg.prompt:
+        shared_context += "\n\nReview prompt:\n```\n" + cfg.prompt.strip() + "\n```"
 
     claude_context = shared_context + (
         " Focus on high-level reasoning, risks, and recommended follow-ups."

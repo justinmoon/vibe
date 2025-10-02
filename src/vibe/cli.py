@@ -90,7 +90,11 @@ def main(argv: List[str] | None = None) -> None:
 
         handle_merge_command(args[1:])
         return
+    if args and args[0] == "review":
+        from .review_cli import handle_review_command
 
+        handle_review_command(args[1:])
+        return
     ensure_tmux_available()
 
     cfg = parse_args(args)

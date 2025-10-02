@@ -5,16 +5,17 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, Optional
 
 from .output import error_exit, info, success, warning
 from .tmux import kill_window, list_windows
-from .worktree import list_duo_targets
+from .worktree import WORKTREE_BASE, list_duo_targets
 
 
 @dataclass
 class DuoTarget:
     base: str
+    repo_root: Path
     claude_branch: str
     claude_path: Path
     codex_branch: str
@@ -24,28 +25,39 @@ class DuoTarget:
 def handle_merge_command(argv: Iterable[str]) -> None:
     parser = argparse.ArgumentParser(
         prog="vibe merge",
-        description="Merge or clean up duo worktrees",
+        description="Merge a duo worktree branch into a target branch",
     )
-    parser.add_argument("--base", help="Base name of the duo worktree pair to merge")
+    parser.add_argument("--base", help="Base name of the duo worktree pair")
     parser.add_argument(
         "--keep",
         choices=["claude", "codex"],
-        help="Which agent branch to keep",
+        help="Which agent branch to merge",
+    )
+    parser.add_argument(
+        "--into",
+        dest="target_branch",
+        help="Branch to merge into (defaults to current branch in repo root)",
+    )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--ff-only",
+        action="store_true",
+        help="Use fast-forward merge only",
+    )
+    group.add_argument(
+        "--no-ff",
+        action="store_true",
+        help="Force a merge commit (default behaviour)",
+    )
+    parser.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="Skip fetching from origin before merging",
     )
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Proceed even if worktrees have unstaged changes",
-    )
-    parser.add_argument(
-        "--no-tmux",
-        action="store_true",
-        help="Skip killing tmux windows",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show planned actions without executing",
+        help="Proceed even if the target branch is dirty",
     )
 
     args = parser.parse_args(list(argv))
@@ -57,63 +69,69 @@ def handle_merge_command(argv: Iterable[str]) -> None:
     target = _choose_target(targets, args.base)
     keep = args.keep or _prompt_keep_choice()
 
-    losing_branch, losing_path = _losing_branch(target, keep)
     keeping_branch, keeping_path = _keeping_branch(target, keep)
+    repo_root = target.repo_root
 
-    keeping_dirty = keeping_path.exists() and _worktree_dirty(keeping_path)
-    losing_dirty = losing_path.exists() and _worktree_dirty(losing_path)
+    if not keeping_path.exists():
+        error_exit("Worktree for branch %s no longer exists at %s", keeping_branch, keeping_path)
 
-    if keeping_dirty and not args.force:
+    if _worktree_dirty(keeping_path) and not args.force:
         error_exit(
-            "Unstaged changes detected in the branch you plan to keep (%s). Commit or stash first, or re-run with --force.",
+            "Unstaged changes detected in %s. Commit or stash before merging, or re-run with --force.",
             keeping_branch,
         )
 
-    windows_to_kill: List[str] = []
-    if not args.no_tmux and shutil.which("tmux"):
-        windows_to_kill = _find_related_windows(
-            target.base,
-            [target.claude_branch, target.codex_branch],
+    target_branch = args.target_branch or _detect_current_branch(repo_root)
+    if not target_branch:
+        error_exit("Unable to determine target branch. Use --into to specify explicitly.")
+
+    if not args.no_fetch:
+        _run_git(repo_root, ["fetch", "--all"], check=False)
+
+    if _worktree_dirty(repo_root) and not args.force:
+        error_exit(
+            "Target branch %s has unstaged changes. Commit or stash before merging, or re-run with --force.",
+            target_branch,
         )
 
-    _print_summary(
-        target=target,
-        keep=keep,
-        losing_branch=losing_branch,
-        losing_path=losing_path,
-        keeping_branch=keeping_branch,
-        keeping_path=keeping_path,
-        keeping_dirty=keeping_dirty,
-        losing_dirty=losing_dirty,
-        windows_to_kill=windows_to_kill,
-    )
+    current_branch = _detect_current_branch(repo_root)
+    if current_branch != target_branch:
+        success("Checking out %s in %s", target_branch, repo_root)
+        _run_git(repo_root, ["checkout", target_branch])
 
-    if args.dry_run:
+    merge_args = ["merge"]
+    if args.ff_only:
+        merge_args.append("--ff-only")
+    else:
+        merge_args.append("--no-ff")
+        merge_args.append("--no-edit")
+    merge_args.append(keeping_branch)
+
+    success("Merging %s into %s", keeping_branch, target_branch)
+    result = _run_git(repo_root, merge_args, check=False)
+    if result != 0:
+        warning(
+            "Merge command exited with status %s. Resolve conflicts manually, then rerun `vibe merge` if needed.",
+            result,
+        )
         return
 
-    if not _confirm():
-        info("Merge cancelled")
-        return
+    success("Merge completed. Review changes, run tests, and push when ready.")
 
-    if windows_to_kill:
-        for window_id in windows_to_kill:
-            kill_window(window_id, delay=True)
-
-    _cleanup_branch(losing_branch, losing_path)
-
-    success(
-        "Kept %s (%s). Next steps: checkout this branch, merge into your target branch, then delete it when finished.",
-        keep,
-        keeping_branch,
-    )
+    _offer_cleanup(target)
 
 
 def _collect_duo_targets() -> Dict[str, DuoTarget]:
     raw = list_duo_targets()
     targets: Dict[str, DuoTarget] = {}
     for base, (claude_branch, claude_path, codex_branch, codex_path) in raw.items():
+        repo_root = _git_repo_root(claude_path) or _git_repo_root(codex_path)
+        if repo_root is None:
+            warning("Skipping pair %s: unable to determine repository root", base)
+            continue
         targets[base] = DuoTarget(
             base=base,
+            repo_root=repo_root,
             claude_branch=claude_branch,
             claude_path=claude_path,
             codex_branch=codex_branch,
@@ -145,7 +163,7 @@ def _choose_target(targets: Dict[str, DuoTarget], base_hint: Optional[str]) -> D
 
 
 def _prompt_keep_choice() -> str:
-    print("Which branch would you like to keep?")
+    print("Which branch would you like to merge?")
     print("  1. claude")
     print("  2. codex")
     choice = input("Enter number: ").strip()
@@ -153,16 +171,10 @@ def _prompt_keep_choice() -> str:
         return "claude"
     if choice == "2":
         return "codex"
-    error_exit("Invalid selection for branch to keep")
+    error_exit("Invalid selection for branch to merge")
 
 
-def _losing_branch(target: DuoTarget, keep: str) -> Tuple[str, Path]:
-    if keep == "claude":
-        return target.codex_branch, target.codex_path
-    return target.claude_branch, target.claude_path
-
-
-def _keeping_branch(target: DuoTarget, keep: str) -> Tuple[str, Path]:
+def _keeping_branch(target: DuoTarget, keep: str) -> tuple[str, Path]:
     if keep == "claude":
         return target.claude_branch, target.claude_path
     return target.codex_branch, target.codex_path
@@ -180,70 +192,144 @@ def _worktree_dirty(path: Path) -> bool:
     return bool(result.stdout.strip())
 
 
-def _find_related_windows(base: str, branches: List[str]) -> List[str]:
-    windows = list_windows()
-    matches: List[str] = []
-    for window_id, _session, name in windows:
-        haystack = name.lower()
-        if base.lower() in haystack:
-            matches.append(window_id)
+def _git_toplevel(path: Path) -> Optional[Path]:
+    result = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return Path(result.stdout.strip())
+
+
+def _detect_current_branch(repo_root: Path) -> Optional[str]:
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    branch = result.stdout.strip()
+    return branch if branch and branch != "HEAD" else None
+
+
+def _run_git(repo_root: Path, args: Iterable[str], *, check: bool = True) -> int:
+    cmd = ["git", "-C", str(repo_root), *args]
+    result = subprocess.run(cmd)
+    if check and result.returncode != 0:
+        error_exit("Command failed: %s", " ".join(cmd))
+    return result.returncode
+
+
+def _find_related_windows(target: DuoTarget):
+    matches = []
+    for window_id, session, name in list_windows():
+        lower = name.lower()
+        if target.base.lower() in lower:
+            matches.append((window_id, session, name))
             continue
-        for branch in branches:
-            if branch.lower() in haystack:
-                matches.append(window_id)
-                break
+        if target.claude_branch.lower() in lower or target.codex_branch.lower() in lower:
+            matches.append((window_id, session, name))
     return matches
 
 
-def _print_summary(
-    *,
-    target: DuoTarget,
-    keep: str,
-    losing_branch: str,
-    losing_path: Path,
-    keeping_branch: str,
-    keeping_path: Path,
-    keeping_dirty: bool,
-    losing_dirty: bool,
-    windows_to_kill: List[str],
-) -> None:
-    print("\n========================================")
-    print(f"Base: {target.base}")
-    print(f"Keep branch: {keep} ({keeping_branch})")
-    print(f"Lose branch: {losing_branch}")
-    print(f"Keep path:  {keeping_path}")
-    print(f"Lose path:  {losing_path}")
-    if keeping_dirty:
-        print(f"\nNote: keeping branch {keeping_branch} has unstaged changes (will remain intact).")
-    if losing_dirty:
-        print(f"\nWarning: losing branch {losing_branch} has unstaged changes (will be discarded).")
-    if windows_to_kill:
-        print("\nTmux windows to close:")
-        for window_id in windows_to_kill:
-            print(f"  - {window_id}")
-    print("========================================\n")
+def _git_repo_root(path: Path) -> Optional[Path]:
+    for flag in ("--show-toplevel", "--git-common-dir"):
+        result = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", flag],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            resolved = Path(result.stdout.strip())
+            if flag == "--git-common-dir":
+                if resolved.name == ".git":
+                    return resolved.parent
+                if resolved.name == "worktrees":
+                    git_dir = resolved.parent
+                    if git_dir.name == ".git":
+                        return git_dir.parent
+            else:
+                return resolved
+    return None
 
 
-def _confirm() -> bool:
-    response = input("Proceed with cleanup? (y/N): ").strip().lower()
-    return response in {"y", "yes"}
+def _offer_cleanup(target: DuoTarget) -> None:
+    response = input(
+        f"Cleanup worktrees, branches, and tmux windows for base '{target.base}'? (y/N): "
+    ).strip().lower()
+    if response not in {"y", "yes"}:
+        return
+
+    cleanup_tasks = [
+        ("worktree", target.claude_path),
+        ("worktree", target.codex_path),
+        ("branch", target.claude_branch),
+        ("branch", target.codex_branch),
+        ("prompt", WORKTREE_BASE / f"{target.base}.prompt"),
+    ]
+
+    for kind, value in cleanup_tasks:
+        if kind == "worktree":
+            _remove_worktree(target.repo_root, value)
+        elif kind == "branch":
+            _delete_branch(target.repo_root, value)
+        elif kind == "prompt":
+            _delete_file(value)
+
+    for window_id, _, name in _find_related_windows(target):
+        kill_window(window_id, delay=False)
+        info("Closed tmux window %s", name)
+
+    success("Cleanup complete for base '%s'", target.base)
 
 
-def _cleanup_branch(branch: str, path: Path) -> None:
-    if path.exists():
-        result = subprocess.run([
+def _remove_worktree(repo_root: Path, path: Path) -> None:
+    if not path.exists():
+        return
+    result = subprocess.run(
+        [
             "git",
+            "-C",
+            str(repo_root),
             "worktree",
             "remove",
             str(path),
             "--force",
-        ])
-        if result.returncode == 0:
-            success("Removed worktree %s", path)
-        else:
-            warning("Failed to remove worktree %s (exit %s)", path, result.returncode)
-    result = subprocess.run(["git", "branch", "-D", branch])
-    if result.returncode == 0:
-        success("Deleted branch %s", branch)
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        warning("Failed to remove worktree %s: %s", path, result.stderr.strip())
     else:
-        warning("Failed to delete branch %s (exit %s)", branch, result.returncode)
+        success("Removed worktree %s", path)
+
+
+def _delete_branch(repo_root: Path, branch: str) -> None:
+    if not branch:
+        return
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "branch",
+            "-D",
+            branch,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        warning("Failed to delete branch %s: %s", branch, result.stderr.strip())
+    else:
+        success("Deleted branch %s", branch)
+
+
+def _delete_file(path: Path) -> None:
+    if path.exists():
+        path.unlink()
+        info("Deleted %s", path)
