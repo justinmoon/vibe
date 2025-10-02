@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, List, Optional, Tuple
 
 from .output import error_exit, success, warning
 
@@ -123,3 +124,38 @@ def current_pane(window_id: str) -> str:
     pane_id = run_tmux(["display-message", "-p", "-t", window_id, "#{pane_id}"], capture=True)
     assert pane_id is not None
     return pane_id
+
+
+def list_windows() -> List[Tuple[str, str, str]]:
+    if shutil.which("tmux") is None:
+        return []
+    try:
+        output = run_tmux(["list-windows", "-a", "-F", "#{window_id} #{session_name} #{window_name}"], capture=True)
+    except subprocess.CalledProcessError:
+        return []
+    if not output:
+        return []
+    windows: List[Tuple[str, str, str]] = []
+    for line in output.splitlines():
+        parts = line.split(" ", 2)
+        if len(parts) == 3:
+            windows.append((parts[0], parts[1], parts[2]))
+    return windows
+
+
+def kill_window(window_id: str, *, delay: bool = False) -> None:
+    if shutil.which("tmux") is None:
+        return
+    if delay:
+        def _delayed_kill(window: str) -> None:
+            time.sleep(0.5)
+            subprocess.run(["tmux", *TMUX_SOCKET_ARGS, "kill-window", "-t", window], stderr=subprocess.DEVNULL)
+
+        import threading
+
+        threading.Thread(target=_delayed_kill, args=(window_id,), daemon=True).start()
+    else:
+        try:
+            run_tmux(["kill-window", "-t", window_id])
+        except subprocess.CalledProcessError:
+            pass

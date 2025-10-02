@@ -85,6 +85,11 @@ def main(argv: List[str] | None = None) -> None:
 
         handle_rules_command(args[1:])
         return
+    if args and args[0] == "merge":
+        from .merge_cli import handle_merge_command
+
+        handle_merge_command(args[1:])
+        return
 
     ensure_tmux_available()
 
