@@ -70,7 +70,12 @@ def run_no_worktree(cfg: Config) -> None:
 
 
 def run_with_worktree(cfg: Config) -> None:
-    branch_name = generate_branch_name(cfg.prompt)
+    if cfg.branch_name:
+        from .worktree import validate_branch_name
+        validate_branch_name(cfg.branch_name)
+        branch_name = cfg.branch_name
+    else:
+        branch_name = generate_branch_name(cfg.prompt)
     worktree_path = setup_worktree(branch_name, cfg)
 
     cwd = worktree_path
@@ -154,7 +159,12 @@ def run_duo_no_worktree(cfg: Config) -> None:
 
 
 def run_duo_with_worktrees(cfg: Config) -> None:
-    base_branch = generate_branch_name(cfg.prompt)
+    if cfg.branch_name:
+        from .worktree import validate_branch_name
+        validate_branch_name(cfg.branch_name)
+        base_branch = cfg.branch_name
+    else:
+        base_branch = generate_branch_name(cfg.prompt)
     claude_branch = f"{base_branch}-claude"
     codex_branch = f"{base_branch}-codex"
 

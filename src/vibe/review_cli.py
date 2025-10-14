@@ -53,6 +53,7 @@ def handle_review_command(argv: Iterable[str]) -> None:
         input_mode="args",
         input_file=None,
         no_worktree=True,
+        branch_name=None,
         from_branch=None,
         from_master=False,
         list_sessions=False,

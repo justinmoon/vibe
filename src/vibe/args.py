@@ -23,6 +23,7 @@ def parse_args(argv: List[str]) -> Config:
           -e, --editor        Open editor for composing message
           -f, --file FILE     Read input from file
           --no-worktree       Run in current directory without creating a worktree
+          -b, --branch NAME   Manually specify branch/worktree name (skips AI generation)
           --from BRANCH       Start from specified branch instead of master
           --from-master       When in worktree, branch from master instead of current branch
           --list              List all active vibe sessions
@@ -60,6 +61,7 @@ def parse_args(argv: List[str]) -> Config:
     parser.add_argument("-e", "--editor", dest="editor_mode", action="store_true")
     parser.add_argument("-f", "--file", dest="input_file")
     parser.add_argument("--no-worktree", action="store_true")
+    parser.add_argument("-b", "--branch", dest="branch_name")
     parser.add_argument("--from", dest="from_branch")
     parser.add_argument("--from-master", action="store_true")
     parser.add_argument("--list", action="store_true")
@@ -111,6 +113,7 @@ def parse_args(argv: List[str]) -> Config:
         input_mode=input_mode,
         input_file=args.input_file,
         no_worktree=args.no_worktree,
+        branch_name=args.branch_name,
         from_branch=args.from_branch,
         from_master=args.from_master,
         list_sessions=args.list,

@@ -16,6 +16,7 @@ class Config:
     input_mode: str
     input_file: Optional[str]
     no_worktree: bool
+    branch_name: Optional[str]
     from_branch: Optional[str]
     from_master: bool
     list_sessions: bool
