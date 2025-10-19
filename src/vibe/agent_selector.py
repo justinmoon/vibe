@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import subprocess
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
+from .model_selector import select_oc_model
 from .output import error_exit
 
 
@@ -65,25 +66,42 @@ def select_single_agent() -> Optional[str]:
     return selected[0] if selected else None
 
 
-def select_agents_for_duo() -> Optional[Tuple[str, str]]:
-    """Prompt user to select two agents for duo mode."""
+def select_agents_for_duo() -> Optional[Tuple[str, str, Optional[str], Optional[str]]]:
+    """Prompt user to select two agents for duo mode (can be same agent)."""
     agents = get_available_agents()
     if not agents:
         error_exit("No agents found")
         return None
     
+    # Select first agent
     selected = run_fzf_selection(agents, "Select first agent", multi=False)
     if not selected:
         return None
     
     first_agent = selected[0]
-    remaining_agents = [a for a in agents if a != first_agent]
     
-    selected_second = run_fzf_selection(remaining_agents, "Select second agent", multi=False)
+    # Select model for first agent if it's oc
+    first_model = None
+    if first_agent == "oc":
+        first_model = select_oc_model()
+        if not first_model:
+            return None
+    
+    # Select second agent (allow same agent)
+    selected_second = run_fzf_selection(agents, "Select second agent", multi=False)
     if not selected_second:
         return None
     
-    return (first_agent, selected_second[0])
+    second_agent = selected_second[0]
+    
+    # Select model for second agent if it's oc
+    second_model = None
+    if second_agent == "oc":
+        second_model = select_oc_model()
+        if not second_model:
+            return None
+    
+    return (first_agent, second_agent, first_model, second_model)
 
 
 def select_agent_mode() -> Optional[str]:
@@ -104,24 +122,34 @@ def select_agent_mode() -> Optional[str]:
     return selected[0].split(" - ")[0]
 
 
-def prompt_agent_selection() -> Optional[Tuple[str, Optional[Tuple[str, str]]]]:
+def prompt_agent_selection() -> Optional[Tuple[str, Union[Tuple[str, Optional[str]], Tuple[str, str, Optional[str], Optional[str]]]]]:
     """
     Main function to prompt for agent selection.
-    Returns: (mode, duo_agents) where mode is 'single', 'duo', or 'review'
-            and duo_agents is None for single/review, or (agent1, agent2) for duo
+    Returns: (mode, agents_info) where mode is 'single', 'duo', or 'review'
+            and agents_info varies by mode:
+            - single/review: (agent, model) 
+            - duo: (agent1, agent2, model1, model2)
     """
     mode = select_agent_mode()
     if not mode:
         return None
     
     if mode == "duo":
-        duo_agents = select_agents_for_duo()
-        if not duo_agents:
+        duo_selection = select_agents_for_duo()
+        if not duo_selection:
             return None
-        return mode, duo_agents
+        return mode, duo_selection
     else:
         # For single and review modes, select the primary agent
         agent = select_single_agent()
         if not agent:
             return None
-        return mode, None
+        
+        # If oc is selected, prompt for model selection
+        selected_model = None
+        if agent == "oc":
+            selected_model = select_oc_model()
+            if not selected_model:
+                return None
+        
+        return mode, (agent, selected_model)

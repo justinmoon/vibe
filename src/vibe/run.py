@@ -4,7 +4,7 @@ import os
 import time
 from pathlib import Path
 
-from .agents import build_agent_command, build_claude_command, build_codex_command, get_agent_flags
+from .agents import build_agent_command, build_claude_command, build_codex_command, build_oc_command, get_agent_flags
 from .config import Config
 from .gitops import current_branch, determine_source_ref, ensure_git_repo, pull_latest_changes, run_init_script
 from .openai_client import generate_branch_name
@@ -24,6 +24,20 @@ from .worktree import (
     setup_worktree,
     write_duo_prompt,
 )
+
+
+def build_command_for_agent(agent: str, context: str, prompt: str, codex_command_name: str | None = None, model: str | None = None) -> str:
+    """Build the appropriate command for any agent."""
+    if agent == "claude":
+        return build_claude_command(context, prompt)
+    elif agent == "codex":
+        return build_codex_command(context, prompt, codex_command_name)
+    elif agent == "oc":
+        return build_oc_command(context, prompt, model)
+    else:
+        # Fallback to generic command building
+        agent_flags = get_agent_flags(agent)
+        return build_agent_command(agent, agent_flags, context, prompt, codex_command_name)
 
 
 def run_single(cfg: Config) -> None:
@@ -62,8 +76,13 @@ def run_no_worktree(cfg: Config) -> None:
         "Please be mindful that any changes you make will affect the current working directory."
     )
 
-    agent_flags = get_agent_flags(cfg.agent_cmd)
-    command = build_agent_command(cfg.agent_cmd, agent_flags, context, cfg.prompt, cfg.codex_command_name)
+    # Handle model selection for oc agent
+    model = getattr(cfg, 'selected_model', None)
+    if cfg.agent_cmd == "oc":
+        command = build_oc_command(context, cfg.prompt, model)
+    else:
+        agent_flags = get_agent_flags(cfg.agent_cmd)
+        command = build_agent_command(cfg.agent_cmd, agent_flags, context, cfg.prompt, cfg.codex_command_name)
     send_keys(window_id, command, "C-m")
 
     success("\u2713 Successfully started %s in current directory in window: %s", cfg.agent_cmd, window_id)
@@ -97,8 +116,13 @@ def run_with_worktree(cfg: Config) -> None:
         "your changes are isolated to this feature branch."
     )
 
-    agent_flags = get_agent_flags(cfg.agent_cmd)
-    command = build_agent_command(cfg.agent_cmd, agent_flags, context, cfg.prompt, cfg.codex_command_name)
+    # Handle model selection for oc agent
+    model = getattr(cfg, 'selected_model', None)
+    if cfg.agent_cmd == "oc":
+        command = build_oc_command(context, cfg.prompt, model)
+    else:
+        agent_flags = get_agent_flags(cfg.agent_cmd)
+        command = build_agent_command(cfg.agent_cmd, agent_flags, context, cfg.prompt, cfg.codex_command_name)
     send_keys(window_id, command, "C-m")
 
     success("\u2713 Successfully created worktree and started %s in window: %s", cfg.agent_cmd, window_id)
@@ -127,6 +151,13 @@ def run_duo_no_worktree(cfg: Config) -> None:
     cwd = Path.cwd()
     run_init_script(cwd)
 
+    # Get the agents for duo mode
+    if cfg.duo_agents and len(cfg.duo_agents) == 4:
+        agent1, agent2, model1, model2 = cfg.duo_agents
+    else:
+        # Fallback to default claude+codex
+        agent1, agent2, model1, model2 = "claude", "codex", None, None
+
     window_name = f"{branch_name}-duo"
     window_id = new_window(window_name, cwd)
     left_pane = current_pane(window_id)
@@ -139,78 +170,87 @@ def run_duo_no_worktree(cfg: Config) -> None:
     time.sleep(0.1)
     time.sleep(0.1)
 
-    set_pane_title(left_pane, "claude")
-    set_pane_title(right_pane, "codex")
+    set_pane_title(left_pane, agent1)
+    set_pane_title(right_pane, agent2)
 
     shared_context = (
         f"You are working in the current directory at {cwd} on branch '{branch_name}'. Please be mindful that any changes "
         "you make will affect the current working directory. A parallel agent is collaborating on the same prompt in another pane."
     )
-    claude_context = f"{shared_context} You are the claude agent; focus on high-level reasoning and clarity."
-    codex_context = f"{shared_context} You are the codex agent; focus on precise execution and coding speed."
+    agent1_context = f"{shared_context} You are the {agent1} agent."
+    agent2_context = f"{shared_context} You are the {agent2} agent."
 
-    claude_cmd = build_claude_command(claude_context, cfg.prompt)
-    codex_cmd = build_codex_command(codex_context, cfg.prompt, cfg.codex_command_name)
+    agent1_cmd = build_command_for_agent(agent1, agent1_context, cfg.prompt, cfg.codex_command_name, model1)
+    agent2_cmd = build_command_for_agent(agent2, agent2_context, cfg.prompt, cfg.codex_command_name, model2)
 
-    send_keys(left_pane, claude_cmd, "C-m")
-    send_keys(right_pane, codex_cmd, "C-m")
+    send_keys(left_pane, agent1_cmd, "C-m")
+    send_keys(right_pane, agent2_cmd, "C-m")
 
-    success("\u2713 Started claude (left) and codex (right) in window: %s", window_id)
+    success("\u2713 Started %s (left) and %s (right) in window: %s", agent1, agent2, window_id)
 
 
 def run_duo_with_worktrees(cfg: Config) -> None:
+    # Get the agents for duo mode
+    if cfg.duo_agents and len(cfg.duo_agents) == 4:
+        agent1, agent2, model1, model2 = cfg.duo_agents
+    else:
+        # Fallback to default claude+codex
+        agent1, agent2, model1, model2 = "claude", "codex", None, None
+    
     if cfg.branch_name:
         from .worktree import validate_branch_name
         validate_branch_name(cfg.branch_name)
         base_branch = cfg.branch_name
     else:
         base_branch = generate_branch_name(cfg.prompt)
-    claude_branch = f"{base_branch}-claude"
-    codex_branch = f"{base_branch}-codex"
+    agent1_branch = f"{base_branch}-{agent1}"
+    agent2_branch = f"{base_branch}-{agent2}"
 
     source_ref = determine_source_ref(cfg)
-    claude_worktree = prepare_agent_worktree("claude", claude_branch, source_ref)
-    codex_worktree = prepare_agent_worktree("codex", codex_branch, source_ref)
+    agent1_worktree = prepare_agent_worktree(agent1, agent1_branch, source_ref)
+    agent2_worktree = prepare_agent_worktree(agent2, agent2_branch, source_ref)
 
     write_duo_prompt(base_branch, cfg.prompt)
 
-    run_init_script(claude_worktree)
-    if codex_worktree != claude_worktree:
-        run_init_script(codex_worktree)
+    run_init_script(agent1_worktree)
+    if agent2_worktree != agent1_worktree:
+        run_init_script(agent2_worktree)
 
-    window_id = new_window(base_branch, claude_worktree)
+    window_id = new_window(base_branch, agent1_worktree)
     left_pane = current_pane(window_id)
-    right_pane = split_window(window_id, cwd=codex_worktree)
+    right_pane = split_window(window_id, cwd=agent2_worktree)
 
-    set_window_dir(window_id, claude_worktree)
+    set_window_dir(window_id, agent1_worktree)
 
     send_keys(left_pane, "C-m")
     time.sleep(0.1)
     send_keys(right_pane, "C-m")
 
-    set_pane_title(left_pane, "claude")
-    set_pane_title(right_pane, "codex")
+    set_pane_title(left_pane, agent1)
+    set_pane_title(right_pane, agent2)
 
-    claude_context = (
-        f"You are working in a git worktree branch '{claude_branch}' located at {claude_worktree}. IMPORTANT: Do not write/edit/create files "
-        "in the main repository root (outside this worktree). Another agent (codex) is working on '{codex_branch}'; coordinate by keeping your "
+    agent1_context = (
+        f"You are working in a git worktree branch '{agent1_branch}' located at {agent1_worktree}. IMPORTANT: Do not write/edit/create files "
+        f"in the main repository root (outside this worktree). Another agent ({agent2}) is working on '{agent2_branch}'; coordinate by keeping your "
         "changes isolated to this worktree."
     )
-    codex_context = (
-        f"You are working in a git worktree branch '{codex_branch}' located at {codex_worktree}. IMPORTANT: Do not write/edit/create files "
-        "in the main repository root (outside this worktree). Another agent (claude) is simultaneously working on '{claude_branch}'."
+    agent2_context = (
+        f"You are working in a git worktree branch '{agent2_branch}' located at {agent2_worktree}. IMPORTANT: Do not write/edit/create files "
+        f"in the main repository root (outside this worktree). Another agent ({agent1}) is simultaneously working on '{agent1_branch}'."
     )
 
-    claude_cmd = build_claude_command(claude_context, cfg.prompt)
-    codex_cmd = build_codex_command(codex_context, cfg.prompt, cfg.codex_command_name)
+    agent1_cmd = build_command_for_agent(agent1, agent1_context, cfg.prompt, cfg.codex_command_name, model1)
+    agent2_cmd = build_command_for_agent(agent2, agent2_context, cfg.prompt, cfg.codex_command_name, model2)
 
-    send_keys(left_pane, claude_cmd, "C-m")
-    send_keys(right_pane, codex_cmd, "C-m")
+    send_keys(left_pane, agent1_cmd, "C-m")
+    send_keys(right_pane, agent2_cmd, "C-m")
 
     success(
-        "\u2713 Started claude (left) on %s and codex (right) on %s in window: %s",
-        claude_branch,
-        codex_branch,
+        "\u2713 Started %s (left) on %s and %s (right) on %s in window: %s",
+        agent1,
+        agent1_branch,
+        agent2,
+        agent2_branch,
         window_id,
     )
 

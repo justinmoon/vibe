@@ -103,8 +103,9 @@ def main(argv: List[str] | None = None) -> None:
     
     ensure_tmux_available()
 
-    # Check if any agent-specific flags are provided
+# Check if any agent-specific flags are provided
     has_agent_flags = any(arg in args for arg in ["--codex", "--amp", "--oc", "--duo", "--duo-review"])
+    selection = None
     
     # If no agent flags provided, prompt for agent selection
     if not has_agent_flags:
@@ -131,6 +132,19 @@ def main(argv: List[str] | None = None) -> None:
             # claude is default, no flag needed
 
     cfg = parse_args(args)
+    
+    # Set duo agents if they were selected
+    if selection:
+        mode, agents_info = selection
+        if mode == "duo" and agents_info and len(agents_info) == 4:
+            cfg.duo_agents = agents_info
+        elif mode in ["single", "review"] and agents_info and len(agents_info) == 2:
+            # For single/review mode, agents_info is (agent, model)
+            agent, model = agents_info
+            if agent == "oc" and model:
+                # Store model in a way that can be accessed later
+                cfg.selected_model = model
+    
     configure_tmux(cfg.tmux_socket)
 
     if cfg.list_sessions:
