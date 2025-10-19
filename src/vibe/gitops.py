@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 from .config import Config
@@ -43,16 +44,84 @@ def run_init_script(path: Path) -> None:
         warning("Warning: Initialization script failed, continuing anyway...")
 
 
+def _list_local_branches() -> list[str]:
+    result = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        warning("Warning: Unable to list local branches; defaulting to HEAD.")
+        return []
+    branches = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return branches
+
+
+def _prompt_for_branch_selection(branches: list[str], default_branch: str, current: str | None) -> str:
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def add_option(name: str | None) -> None:
+        if not name:
+            return
+        if name in branches and name not in seen:
+            ordered.append(name)
+            seen.add(name)
+
+    add_option(default_branch)
+    add_option(current if current != default_branch else None)
+    for branch in branches:
+        if branch not in seen:
+            ordered.append(branch)
+
+    while True:
+        print("Select a branch to base the new worktree on:")
+        for idx, branch in enumerate(ordered, start=1):
+            tags: list[str] = []
+            if branch == default_branch:
+                tags.append("default")
+            if current and branch == current:
+                tags.append("current")
+            suffix = f" ({', '.join(tags)})" if tags else ""
+            print(f"  {idx}. {branch}{suffix}")
+        choice = input(f"Enter number or branch name [{default_branch}]: ").strip()
+        if not choice:
+            return default_branch
+        if choice.isdigit():
+            index = int(choice) - 1
+            if 0 <= index < len(ordered):
+                return ordered[index]
+        elif choice in ordered:
+            return choice
+        print(f"Invalid selection '{choice}'. Please try again.")
+
+
 def determine_source_ref(cfg: Config) -> str:
     if cfg.from_branch:
         return cfg.from_branch
-    cwd_str = str(Path.cwd())
-    if "/worktree" in cwd_str:
-        if cfg.from_master:
-            return "master"
-        result = subprocess.run(["git", "branch", "--show-current"], capture_output=True, text=True)
-        if result.returncode == 0:
-            current = result.stdout.strip() or "HEAD"
-            success("In worktree on '%s' - branching from current branch", current)
-            return "HEAD"
-    return "HEAD"
+    if cfg.from_master:
+        success("Base branch: master (--from-master)")
+        return "master"
+
+    branches = _list_local_branches()
+    if not branches:
+        return "HEAD"
+
+    current = current_branch()
+    if current == "detached":
+        current = None
+
+    if "master" in branches:
+        default_branch = "master"
+    elif current and current in branches:
+        default_branch = current
+    else:
+        default_branch = branches[0]
+
+    if not sys.stdin.isatty():
+        success("Base branch: %s", default_branch)
+        return default_branch
+
+    selected = _prompt_for_branch_selection(branches, default_branch, current)
+    success("Base branch: %s", selected)
+    return selected

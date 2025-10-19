@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import List
 
+from .agent_selector import prompt_agent_selection
 from .args import parse_args
 from .config import Config
 from .run import run_duo, run_duo_review, run_single
@@ -95,7 +96,39 @@ def main(argv: List[str] | None = None) -> None:
 
         handle_review_command(args[1:])
         return
+    # Check for help flag before doing anything else
+    if "--help" in args or "-h" in args:
+        cfg = parse_args(args)
+        return
+    
     ensure_tmux_available()
+
+    # Check if any agent-specific flags are provided
+    has_agent_flags = any(arg in args for arg in ["--codex", "--amp", "--oc", "--duo", "--duo-review"])
+    
+    # If no agent flags provided, prompt for agent selection
+    if not has_agent_flags:
+        selection = prompt_agent_selection()
+        if not selection:
+            return
+        
+        mode, duo_agents = selection
+        
+        # Update args based on selection
+        if mode == "duo":
+            args.append("--duo")
+        elif mode == "review":
+            args.append("--duo-review")
+        elif duo_agents and duo_agents[0]:
+            # Single agent mode with selected agent
+            agent = duo_agents[0]
+            if agent == "codex":
+                args.append("--codex")
+            elif agent == "amp":
+                args.append("--amp")
+            elif agent == "oc":
+                args.append("--oc")
+            # claude is default, no flag needed
 
     cfg = parse_args(args)
     configure_tmux(cfg.tmux_socket)
