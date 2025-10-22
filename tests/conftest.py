@@ -139,12 +139,14 @@ def cli_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tmux_socket
     return SimpleNamespace(env=env, logs=logs, socket=tmux_socket, openai=openai_stub)
 
 
-def run_cli(args: list[str], *, env: dict[str, str], cwd: Path):
+def run_cli(args: list[str], *, env: dict[str, str], cwd: Path, expect_failure: bool = False):
     import subprocess
     import sys
 
     cmd = [sys.executable, "-m", "vibe", *args]
     result = subprocess.run(cmd, env=env, cwd=cwd, capture_output=True, text=True)
     if result.returncode != 0:
+        if expect_failure:
+            return result
         raise RuntimeError(f"CLI failed: {result.stdout}\n{result.stderr}")
     return result

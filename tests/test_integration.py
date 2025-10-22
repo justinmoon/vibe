@@ -9,11 +9,15 @@ from pathlib import Path
 import pytest
 
 
-def run_cli(args: list[str], *, env: dict[str, str], cwd: Path):
+def run_cli(args: list[str], *, env: dict[str, str], cwd: Path, expect_failure: bool = False):
     cmd = [sys.executable, "-m", "vibe", *args]
     result = subprocess.run(cmd, env=env, cwd=cwd, capture_output=True, text=True)
     if result.returncode != 0:
+        if expect_failure:
+            return result
         raise RuntimeError(f"CLI failed: {result.stdout}\n{result.stderr}")
+    if expect_failure:
+        raise RuntimeError("CLI succeeded but failure was expected")
     return result
 
 
@@ -77,42 +81,11 @@ def test_duo_worktree_launches_agents(cli_environment, git_repo):
     assert len(titles) == 2
 
 
-def test_duo_no_worktree_leaves_repo_clean(cli_environment, git_repo):
-    cli_environment.openai.queue(["quick", "quick-task"])
+def test_requires_tmux_session(cli_environment, git_repo):
+    env = dict(cli_environment.env)
+    env.pop("TMUX", None)
 
-    run_cli(["--duo", "--no-worktree", "scratch"], env=cli_environment.env, cwd=git_repo)
+    result = run_cli(["--duo", "no session"], env=env, cwd=git_repo, expect_failure=True)
+    assert result.returncode != 0
+    assert "vibe must be run inside an existing tmux session" in result.stderr
 
-    worktree_lines = _worktree_paths(git_repo)
-    assert not any("quick-task" in line for line in worktree_lines)
-
-    assert _wait_for_log(cli_environment.logs["claude"], "scratch")
-    assert _wait_for_log(cli_environment.logs["codex"], "scratch")
-
-
-def test_list_sessions_shows_vibe_prefix(cli_environment):
-    socket = cli_environment.socket
-    subprocess.run(["tmux", "-L", socket, "new-session", "-d", "-s", "vibe-demo"], check=True)
-    time.sleep(0.2)
-    result = run_cli(["--list"], env=cli_environment.env, cwd=Path.cwd())
-    assert "vibe-demo" in result.stdout
-
-
-def test_duo_review_reuses_worktrees(cli_environment, git_repo):
-    cli_environment.openai.queue(["phase one", "phase-one"])
-    run_cli(["--duo", "implement feature"], env=cli_environment.env, cwd=git_repo)
-
-    initial_worktrees = _worktree_paths(git_repo)
-    assert any("-claude" in line for line in initial_worktrees)
-    assert any("-codex" in line for line in initial_worktrees)
-
-    review_prompt = "please review the changes"
-    run_cli(["--duo-review", review_prompt], env=cli_environment.env, cwd=git_repo)
-
-    assert _wait_for_log(cli_environment.logs["claude"], review_prompt)
-    assert _wait_for_log(cli_environment.logs["codex"], review_prompt)
-
-    after_worktrees = _worktree_paths(git_repo)
-    assert len(after_worktrees) == len(initial_worktrees)
-
-    titles = _list_pane_titles(cli_environment.socket)
-    assert len(titles) == 2

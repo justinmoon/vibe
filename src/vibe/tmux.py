@@ -80,7 +80,7 @@ def new_session(name: str, cwd: Path, *, detached: bool = False) -> None:
 def new_window(name: str, cwd: Path) -> str:
     try:
         window_id = run_tmux(
-            ["new-window", "-n", name, "-c", str(cwd), "-P", "-F", "#{window_id}"],
+            ["new-window", "-n", name, "-c", str(cwd.resolve()), "-P", "-F", "#{window_id}"],
             capture=True,
         )
     except subprocess.CalledProcessError:
@@ -93,13 +93,14 @@ def new_window(name: str, cwd: Path) -> str:
 def split_window(window_id: str, *, direction: str = "-h", cwd: Path) -> str:
     try:
         pane_id = run_tmux(
-            ["split-window", direction, "-t", window_id, "-c", str(cwd), "-P", "-F", "#{pane_id}"],
+            ["split-window", direction, "-t", window_id, "-c", str(cwd.resolve()), "-P", "-F", "#{pane_id}"],
             capture=True,
         )
     except subprocess.CalledProcessError:
         error_exit("Error: Could not split tmux window for codex pane")
     assert pane_id is not None
     return pane_id
+
 
 
 def set_window_dir(window_id: str, path: Path) -> None:

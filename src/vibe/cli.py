@@ -34,48 +34,14 @@ def inside_tmux() -> bool:
 
 
 def handle_session_only(session_name: str) -> None:
-    if inside_tmux():
-        if session_exists(session_name):
-            switch_client(session_name)
-        else:
-            new_session(session_name, Path.cwd(), detached=True)
-            switch_client(session_name)
-        return
-
     if session_exists(session_name):
-        attach_session(session_name)
+        switch_client(session_name)
     else:
-        new_session(session_name, Path.cwd())
+        new_session(session_name, Path.cwd(), detached=True)
+        switch_client(session_name)
 
 
-def run_with_tmux(session_name: str, cfg: Config) -> None:
-    cwd = Path.cwd()
-    if session_exists(session_name):
-        fd, tmp_path = tempfile.mkstemp(prefix="vibe-run.", suffix=".sh")
-        os.close(fd)
-        temp_script = Path(tmp_path)
-        try:
-            temp_script.write_text(
-                "#!/bin/bash\n"
-                f"cd {shlex.quote(str(cwd))}\n"
-                f"vibe {shlex.join(cfg.raw_args)}\n"
-                f"rm -f {shlex.quote(str(temp_script))}\n"
-            )
-            temp_script.chmod(0o755)
-            cmd = (
-                f"tmux attach-session -d -t {shlex.quote(session_name)} "
-                f"\\; send-keys {shlex.quote(str(temp_script))} C-m"
-            )
-            subprocess.run(cmd, shell=True, check=True)
-        finally:
-            temp_script.unlink(missing_ok=True)
-    else:
-        quoted_args = shlex.join(cfg.raw_args)
-        cmd = (
-            f"tmux new-session -s {shlex.quote(session_name)} -c {shlex.quote(str(cwd))} "
-            f"\"vibe {quoted_args}; $SHELL\""
-        )
-        subprocess.run(cmd, shell=True, check=True)
+
 
 
 def main(argv: List[str] | None = None) -> None:
@@ -102,6 +68,11 @@ def main(argv: List[str] | None = None) -> None:
         return
     
     ensure_tmux_available()
+
+    # Require vibe to be run inside an existing tmux session
+    if not inside_tmux():
+        from .output import error_exit
+        error_exit("Error: vibe must be run inside an existing tmux session. Please run 'tmux' first.")
 
 # Check if any agent-specific flags are provided
     has_agent_flags = any(arg in args for arg in ["--codex", "--amp", "--oc", "--duo", "--duo-review"])
@@ -157,15 +128,12 @@ def main(argv: List[str] | None = None) -> None:
         handle_session_only(session_name)
         return
 
-    if inside_tmux():
-        if cfg.agent_mode == "dual":
-            run_duo(cfg)
-        elif cfg.agent_mode == "review":
-            run_duo_review(cfg)
-        else:
-            run_single(cfg)
+    if cfg.agent_mode == "dual":
+        run_duo(cfg)
+    elif cfg.agent_mode == "review":
+        run_duo_review(cfg)
     else:
-        run_with_tmux(session_name, cfg)
+        run_single(cfg)
 
 
 if __name__ == "__main__":
