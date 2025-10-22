@@ -62,7 +62,7 @@ def build_oc_command(context: str, prompt: str, model: str | None = None) -> str
     
     # Build oc command with optional model
     if model:
-        command = f"{command_name} -p --model {shlex.quote(model)} \"$(cat {quoted_temp})\""
+        command = f"{command_name} --model {shlex.quote(model)} -p \"$(cat {quoted_temp})\""
     else:
         command = f"{command_name} -p \"$(cat {quoted_temp})\""
     

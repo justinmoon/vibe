@@ -8,7 +8,7 @@ from .agents import build_agent_command, build_claude_command, build_codex_comma
 from .config import Config
 from .gitops import current_branch, determine_source_ref, ensure_git_repo, pull_latest_changes, run_init_script
 from .openai_client import generate_branch_name
-from .output import info, success
+from .output import error_exit, info, success
 from .tmux import (
     current_pane,
     new_window,
@@ -89,6 +89,7 @@ def run_no_worktree(cfg: Config) -> None:
 
 
 def run_with_worktree(cfg: Config) -> None:
+    repo_root = Path.cwd()
     if cfg.branch_name:
         from .worktree import validate_branch_name
         validate_branch_name(cfg.branch_name)
@@ -96,8 +97,12 @@ def run_with_worktree(cfg: Config) -> None:
     else:
         branch_name = generate_branch_name(cfg.prompt)
     worktree_path = setup_worktree(branch_name, cfg)
+    if not worktree_path.is_absolute():
+        worktree_path = (repo_root / worktree_path).resolve()
 
     cwd = worktree_path
+    if not cwd.is_dir():
+        error_exit("Error: Expected worktree directory at '%s' but it was not created.", cwd)
     os.chdir(cwd)
     success("Working directory: %s", cwd)
     run_init_script(cwd)

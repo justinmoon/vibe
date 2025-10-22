@@ -33,6 +33,11 @@ def inside_tmux() -> bool:
     return bool(os.environ.get("TMUX"))
 
 
+def _prepend_flag(args: List[str], flag: str) -> None:
+    if flag not in args:
+        args.insert(0, flag)
+
+
 def handle_session_only(session_name: str) -> None:
     if session_exists(session_name):
         switch_client(session_name)
@@ -88,18 +93,18 @@ def main(argv: List[str] | None = None) -> None:
         
         # Update args based on selection
         if mode == "duo":
-            args.append("--duo")
+            _prepend_flag(args, "--duo")
         elif mode == "review":
-            args.append("--duo-review")
+            _prepend_flag(args, "--duo-review")
         elif duo_agents and duo_agents[0]:
             # Single agent mode with selected agent
             agent = duo_agents[0]
             if agent == "codex":
-                args.append("--codex")
+                _prepend_flag(args, "--codex")
             elif agent == "amp":
-                args.append("--amp")
+                _prepend_flag(args, "--amp")
             elif agent == "oc":
-                args.append("--oc")
+                _prepend_flag(args, "--oc")
             # claude is default, no flag needed
 
     cfg = parse_args(args)

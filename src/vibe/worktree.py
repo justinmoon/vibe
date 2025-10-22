@@ -34,7 +34,11 @@ def find_existing_worktree(branch_name: str) -> Optional[Path]:
 
 
 def branch_exists(branch_name: str) -> bool:
-    result = subprocess.run(["git", "show-ref", "--verify", f"refs/heads/{branch_name}"], stdout=subprocess.DEVNULL)
+    result = subprocess.run(
+        ["git", "show-ref", "--verify", f"refs/heads/{branch_name}"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     return result.returncode == 0
 
 
