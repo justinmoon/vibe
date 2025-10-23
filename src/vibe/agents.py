@@ -13,7 +13,7 @@ def get_agent_flags(agent_cmd: str) -> str:
         return "--dangerously-bypass-approvals-and-sandbox"
     elif agent_cmd == "oc":
         return ""  # opencode doesn't use flags, uses "run" command
-    return "--dangerously-skip-permissions"
+    return "--dangerously-allow-all"
 
 
 def build_agent_command(
