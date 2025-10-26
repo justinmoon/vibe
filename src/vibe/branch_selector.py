@@ -46,10 +46,18 @@ def select_branch_name(prompt: str, skip_ai: bool = False) -> str:
                 # User just typed and pressed enter
                 branch_name = output_lines[0] if output_lines else ""
         elif result.returncode == 1:
-            # User cancelled (Ctrl-C or ESC)
+            # Exit code 1 means no match - but user may have typed a custom name
+            # Check if they typed something (first line is the query)
+            if output_lines and output_lines[0]:
+                branch_name = output_lines[0]
+            else:
+                # Empty query, treat as cancelled
+                return ""
+        elif result.returncode == 130:
+            # User cancelled with Ctrl-C
             return ""
         else:
-            # User typed something and pressed enter without selecting
+            # Other exit codes - try to use what they typed
             branch_name = output_lines[0] if output_lines else ""
         
         # Clean up the branch name
