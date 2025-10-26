@@ -417,3 +417,32 @@ We have many related projects in ~/code/moq that you can look at for references 
 Keep things simple. Try to keep directory structure reasonably flat.
 
 Never stub things out for a real implementation later unless you are explicitely told to do so. Your job is to make a real implementation now.
+
+## Oracle Tool
+
+You have access to the `oracle` command - a high-powered AI advisor that uses advanced reasoning models (o1 by default). Use it when you need:
+
+- **Strategic guidance**: Complex architectural decisions, design patterns, tradeoffs
+- **Planning**: Breaking down large features, identifying edge cases, security considerations
+- **Review**: Second opinion on your approach before implementation
+- **Expert knowledge**: Deep technical questions beyond your immediate context
+
+**Usage:**
+```bash
+oracle "What is the best approach to implement real-time collaboration?"
+oracle "Review this authentication strategy and identify security risks"
+oracle "How should I structure a plugin system for this application?"
+```
+
+**When to consult the oracle:**
+- Before major architectural changes
+- When stuck on a complex problem
+- To validate your implementation plan
+- When you need expertise in an unfamiliar domain
+
+**When NOT to use it:**
+- Simple coding questions you can handle
+- Questions about the current codebase (use Read/Grep instead)
+- Repetitive or trivial decisions
+
+The oracle is expensive - use it wisely for high-impact decisions.
