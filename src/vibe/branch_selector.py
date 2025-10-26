@@ -9,33 +9,20 @@ from .output import error_exit
 
 def select_branch_name(prompt: str, skip_ai: bool = False) -> str:
     """
-    Prompt user to select or customize a branch name.
-    First generates an AI suggestion, then lets user accept or provide their own.
+    Prompt user to enter a branch name or type 'ai' to generate one with AI.
     """
-    if skip_ai:
-        ai_suggestion = None
-    else:
-        try:
-            ai_suggestion = generate_branch_name(prompt)
-        except Exception:
-            # If AI generation fails, continue without suggestion
-            ai_suggestion = None
-    
     # Use fzf with --print-query to allow custom input
-    options = []
-    if ai_suggestion:
-        options.append(f"{ai_suggestion} (AI suggestion)")
-    
-    options.extend([
+    options = [
+        "ai (generate with AI)",
         "feature/",
         "fix/",
         "refactor/",
         "docs/",
         "test/",
-    ])
+    ]
     
     try:
-        cmd = ["fzf", "--prompt", "Branch name: ", "--print-query", "--height", "40%"]
+        cmd = ["fzf", "--prompt", "Branch name (or type 'ai'): ", "--print-query", "--height", "40%"]
         
         result = subprocess.run(
             cmd,
@@ -54,8 +41,7 @@ def select_branch_name(prompt: str, skip_ai: bool = False) -> str:
             if len(output_lines) >= 2 and output_lines[1]:
                 # User selected an option
                 selected = output_lines[1]
-                # Extract branch name (remove AI suggestion suffix if present)
-                branch_name = selected.split(" (AI suggestion)")[0]
+                branch_name = selected.split(" (generate with AI)")[0]
             else:
                 # User just typed and pressed enter
                 branch_name = output_lines[0] if output_lines else ""
@@ -68,6 +54,18 @@ def select_branch_name(prompt: str, skip_ai: bool = False) -> str:
         
         # Clean up the branch name
         branch_name = branch_name.strip()
+        
+        # If user typed 'ai', generate with AI
+        if branch_name.lower() == "ai":
+            if skip_ai:
+                error_exit("Error: AI generation disabled but 'ai' was selected")
+                return ""
+            try:
+                ai_suggestion = generate_branch_name(prompt)
+                return ai_suggestion
+            except Exception as e:
+                error_exit(f"Error: AI branch name generation failed: {e}")
+                return ""
         
         # If it's a prefix like "feature/", prompt again for the actual name
         if branch_name.endswith("/"):
