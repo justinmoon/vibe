@@ -420,7 +420,7 @@ Never stub things out for a real implementation later unless you are explicitely
 
 ## Oracle Tool
 
-You have access to the `oracle` command - a high-powered AI advisor that uses advanced reasoning models (o1 by default). Use it when you need:
+You have access to the `oracle` command - a high-powered AI advisor that uses advanced reasoning models (gpt-5-codex high by default). Use it when you need:
 
 - **Strategic guidance**: Complex architectural decisions, design patterns, tradeoffs
 - **Planning**: Breaking down large features, identifying edge cases, security considerations
