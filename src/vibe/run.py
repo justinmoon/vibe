@@ -5,9 +5,9 @@ import time
 from pathlib import Path
 
 from .agents import build_agent_command, build_claude_command, build_codex_command, build_droid_command, build_oc_command, get_agent_flags
+from .branch_selector import select_branch_name
 from .config import Config
 from .gitops import current_branch, determine_source_ref, ensure_git_repo, pull_latest_changes, run_init_script
-from .openai_client import generate_branch_name
 from .output import error_exit, info, success
 from .tmux import (
     current_pane,
@@ -93,7 +93,9 @@ def run_with_worktree(cfg: Config) -> None:
         validate_branch_name(cfg.branch_name)
         branch_name = cfg.branch_name
     else:
-        branch_name = generate_branch_name(cfg.prompt)
+        branch_name = select_branch_name(cfg.prompt)
+        if not branch_name:
+            error_exit("Error: No branch name provided")
     worktree_path = setup_worktree(branch_name, cfg)
     if not worktree_path.is_absolute():
         worktree_path = (repo_root / worktree_path).resolve()
@@ -201,7 +203,9 @@ def run_duo_with_worktrees(cfg: Config) -> None:
         validate_branch_name(cfg.branch_name)
         base_branch = cfg.branch_name
     else:
-        base_branch = generate_branch_name(cfg.prompt)
+        base_branch = select_branch_name(cfg.prompt)
+        if not base_branch:
+            error_exit("Error: No branch name provided")
     agent1_branch = f"{base_branch}-{agent1}"
     agent2_branch = f"{base_branch}-{agent2}"
 
