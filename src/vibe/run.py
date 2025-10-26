@@ -4,7 +4,7 @@ import os
 import time
 from pathlib import Path
 
-from .agents import build_agent_command, build_claude_command, build_codex_command, build_oc_command, get_agent_flags
+from .agents import build_agent_command, build_claude_command, build_codex_command, build_droid_command, build_oc_command, get_agent_flags
 from .config import Config
 from .gitops import current_branch, determine_source_ref, ensure_git_repo, pull_latest_changes, run_init_script
 from .openai_client import generate_branch_name
@@ -31,13 +31,15 @@ def build_command_for_agent(agent: str, context: str, prompt: str, codex_command
     if agent == "claude":
         return build_claude_command(context, prompt)
     elif agent == "codex":
-        return build_codex_command(context, prompt, codex_command_name)
+        return build_codex_command(context, prompt, codex_command_name, model)
     elif agent == "oc":
         return build_oc_command(context, prompt, model)
+    elif agent == "droid":
+        return build_droid_command(context, prompt, model)
     else:
         # Fallback to generic command building
         agent_flags = get_agent_flags(agent)
-        return build_agent_command(agent, agent_flags, context, prompt, codex_command_name)
+        return build_agent_command(agent, agent_flags, context, prompt, codex_command_name, model)
 
 
 def run_single(cfg: Config) -> None:
@@ -76,13 +78,9 @@ def run_no_worktree(cfg: Config) -> None:
         "Please be mindful that any changes you make will affect the current working directory."
     )
 
-    # Handle model selection for oc agent
+    # Handle model selection for agents that support it
     model = getattr(cfg, 'selected_model', None)
-    if cfg.agent_cmd == "oc":
-        command = build_oc_command(context, cfg.prompt, model)
-    else:
-        agent_flags = get_agent_flags(cfg.agent_cmd)
-        command = build_agent_command(cfg.agent_cmd, agent_flags, context, cfg.prompt, cfg.codex_command_name)
+    command = build_command_for_agent(cfg.agent_cmd, context, cfg.prompt, cfg.codex_command_name, model)
     send_keys(window_id, command, "C-m")
 
     success("\u2713 Successfully started %s in current directory in window: %s", cfg.agent_cmd, window_id)
@@ -121,13 +119,9 @@ def run_with_worktree(cfg: Config) -> None:
         "your changes are isolated to this feature branch."
     )
 
-    # Handle model selection for oc agent
+    # Handle model selection for agents that support it
     model = getattr(cfg, 'selected_model', None)
-    if cfg.agent_cmd == "oc":
-        command = build_oc_command(context, cfg.prompt, model)
-    else:
-        agent_flags = get_agent_flags(cfg.agent_cmd)
-        command = build_agent_command(cfg.agent_cmd, agent_flags, context, cfg.prompt, cfg.codex_command_name)
+    command = build_command_for_agent(cfg.agent_cmd, context, cfg.prompt, cfg.codex_command_name, model)
     send_keys(window_id, command, "C-m")
 
     success("\u2713 Successfully created worktree and started %s in window: %s", cfg.agent_cmd, window_id)

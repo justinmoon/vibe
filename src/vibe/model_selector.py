@@ -45,32 +45,53 @@ def increment_model_usage(model: str) -> None:
     save_model_usage(usage_data)
 
 
-def get_available_models() -> List[str]:
-    """Get list of available models from opencode."""
-    try:
-        result = subprocess.run(
-            ["opencode", "models"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        # Parse model names from output
-        models = []
-        for line in result.stdout.strip().split('\n'):
-            if line.strip():
-                models.append(line.strip())
-        return models
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        # Fallback to common models if opencode is not available
+def get_available_models(agent: str = "oc") -> List[str]:
+    """Get list of available models for specified agent."""
+    if agent == "oc":
+        try:
+            result = subprocess.run(
+                ["opencode", "models"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            # Parse model names from output
+            models = []
+            for line in result.stdout.strip().split('\n'):
+                if line.strip():
+                    models.append(line.strip())
+            return models
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            # Fallback to common models if opencode is not available
+            return [
+                "opencode/gpt-5",
+                "opencode/claude-sonnet-4-5",
+                "opencode/claude-opus-4-1",
+                "opencode/gpt-5-codex",
+                "openai/gpt-5",
+                "openai/gpt-4o",
+                "anthropic/claude-3-5-sonnet-20241022",
+            ]
+    elif agent == "codex":
         return [
-            "opencode/gpt-5",
-            "opencode/claude-sonnet-4-5",
-            "opencode/claude-opus-4-1",
-            "opencode/gpt-5-codex",
-            "openai/gpt-5",
-            "openai/gpt-4o",
-            "anthropic/claude-3-5-sonnet-20241022",
+            "o3-mini",
+            "o3",
+            "o1",
+            "o1-mini",
+            "gpt-4o",
+            "claude-3-7-sonnet",
+            "claude-sonnet-4",
         ]
+    elif agent == "droid":
+        return [
+            "claude-sonnet-4.5",
+            "claude-sonnet-4",
+            "o3-mini",
+            "o1",
+            "gpt-4o",
+        ]
+    else:
+        return []
 
 
 def sort_models_by_usage(models: List[str]) -> List[str]:
@@ -84,11 +105,11 @@ def sort_models_by_usage(models: List[str]) -> List[str]:
     return sorted(models, key=sort_key)
 
 
-def select_oc_model() -> Optional[str]:
-    """Prompt user to select a model for oc agent using fzf."""
-    models = get_available_models()
+def select_model(agent: str = "oc") -> Optional[str]:
+    """Prompt user to select a model for specified agent using fzf."""
+    models = get_available_models(agent)
     if not models:
-        error_exit("No models found")
+        error_exit(f"No models found for {agent}")
         return None
     
     # Sort by usage frequency
@@ -106,7 +127,7 @@ def select_oc_model() -> Optional[str]:
     
     try:
         result = subprocess.run(
-            ["fzf", "--prompt", "Select model: "],
+            ["fzf", "--prompt", f"Select {agent} model: "],
             input="\n".join(display_models),
             text=True,
             capture_output=True,
@@ -123,3 +144,8 @@ def select_oc_model() -> Optional[str]:
     except FileNotFoundError:
         error_exit("Error: fzf not found. Please install fzf to use model selection.")
         return None
+
+
+def select_oc_model() -> Optional[str]:
+    """Prompt user to select a model for oc agent using fzf."""
+    return select_model("oc")

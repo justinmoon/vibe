@@ -80,7 +80,7 @@ def main(argv: List[str] | None = None) -> None:
         error_exit("Error: vibe must be run inside an existing tmux session. Please run 'tmux' first.")
 
 # Check if any agent-specific flags are provided
-    has_agent_flags = any(arg in args for arg in ["--codex", "--amp", "--oc", "--duo", "--duo-review"])
+    has_agent_flags = any(arg in args for arg in ["--codex", "--amp", "--oc", "--droid", "--duo", "--duo-review"])
     selection = None
     
     # If no agent flags provided, prompt for agent selection
@@ -105,6 +105,8 @@ def main(argv: List[str] | None = None) -> None:
                 _prepend_flag(args, "--amp")
             elif agent == "oc":
                 _prepend_flag(args, "--oc")
+            elif agent == "droid":
+                _prepend_flag(args, "--droid")
             # claude is default, no flag needed
 
     cfg = parse_args(args)

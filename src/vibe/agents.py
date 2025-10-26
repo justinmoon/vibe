@@ -13,6 +13,8 @@ def get_agent_flags(agent_cmd: str) -> str:
         return "--dangerously-bypass-approvals-and-sandbox"
     elif agent_cmd == "oc":
         return ""  # opencode doesn't use flags, uses "run" command
+    elif agent_cmd == "droid":
+        return "--dangerously-allow-all"
     return "--dangerously-allow-all"
 
 
@@ -22,6 +24,7 @@ def build_agent_command(
     context: str,
     prompt: str,
     codex_command_name: str | None,
+    model: str | None = None,
 ) -> str:
     command_name = os.environ.get("VIBE_OC_BIN", "oc") if agent_cmd == "oc" else os.environ.get(f"VIBE_{agent_cmd.upper()}_BIN", agent_cmd)
     message = context if not prompt else f"{context}\n\n{prompt}"
@@ -33,37 +36,45 @@ def build_agent_command(
     
     if agent_cmd == "oc":
         # Use full UI: `oc -p` shows the TUI and conversation
-        command = f"{command_name} -p \"$(cat {quoted_temp})\""
-    else:
-        # claude, codex, amp use flags format
-        command = f"{command_name} {agent_flags} \"$(cat {quoted_temp})\""
-        if agent_cmd == "codex" and codex_command_name:
+        if model:
+            command = f"{command_name} --model {shlex.quote(model)} -p \"$(cat {quoted_temp})\""
+        else:
+            command = f"{command_name} -p \"$(cat {quoted_temp})\""
+    elif agent_cmd == "amp":
+        # amp launches GUI with stdin
+        command = f"cat {quoted_temp} | {command_name} {agent_flags}"
+    elif agent_cmd == "codex":
+        # codex uses --model flag
+        if model:
+            command = f"{command_name} {agent_flags} --model {shlex.quote(model)} \"$(cat {quoted_temp})\""
+        else:
+            command = f"{command_name} {agent_flags} \"$(cat {quoted_temp})\""
+        if codex_command_name:
             command = f"{command} {shlex.quote(codex_command_name)}"
+    elif agent_cmd == "droid":
+        # droid uses --model flag
+        if model:
+            command = f"{command_name} {agent_flags} --model {shlex.quote(model)} \"$(cat {quoted_temp})\""
+        else:
+            command = f"{command_name} {agent_flags} \"$(cat {quoted_temp})\""
+    else:
+        # claude and other agents use flags format
+        command = f"{command_name} {agent_flags} \"$(cat {quoted_temp})\""
     
     return f"{command} && rm -f {quoted_temp}"
 
 
 def build_claude_command(context: str, prompt: str) -> str:
-    return build_agent_command("claude", get_agent_flags("claude"), context, prompt, None)
+    return build_agent_command("claude", get_agent_flags("claude"), context, prompt, None, None)
 
 
-def build_codex_command(context: str, prompt: str, codex_command_name: str | None) -> str:
-    return build_agent_command("codex", get_agent_flags("codex"), context, prompt, codex_command_name)
+def build_codex_command(context: str, prompt: str, codex_command_name: str | None, model: str | None = None) -> str:
+    return build_agent_command("codex", get_agent_flags("codex"), context, prompt, codex_command_name, model)
 
 
 def build_oc_command(context: str, prompt: str, model: str | None = None) -> str:
-    command_name = os.environ.get("VIBE_OC_BIN", "oc")
-    message = context if not prompt else f"{context}\n\n{prompt}"
-    fd, temp_path = tempfile.mkstemp(prefix="vibe-msg.")
-    os.close(fd)
-    temp = Path(temp_path)
-    temp.write_text(message)
-    quoted_temp = shlex.quote(str(temp))
-    
-    # Build oc command with optional model
-    if model:
-        command = f"{command_name} --model {shlex.quote(model)} -p \"$(cat {quoted_temp})\""
-    else:
-        command = f"{command_name} -p \"$(cat {quoted_temp})\""
-    
-    return f"{command} && rm -f {quoted_temp}"
+    return build_agent_command("oc", get_agent_flags("oc"), context, prompt, None, model)
+
+
+def build_droid_command(context: str, prompt: str, model: str | None = None) -> str:
+    return build_agent_command("droid", get_agent_flags("droid"), context, prompt, None, model)

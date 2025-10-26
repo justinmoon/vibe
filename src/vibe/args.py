@@ -32,6 +32,7 @@ def parse_args(argv: List[str]) -> Config:
           --duo-review        Review an existing claude+codex worktree pair
           --amp               Use amp agent instead of claude
           --oc                Use oc (opencode) agent instead of claude
+          --droid             Use droid agent instead of claude
           --command NAME      Codex command name (only meaningful for codex)
           --review-base NAME  Explicitly choose duo base when reviewing
           -h, --help          Show this help message
@@ -70,6 +71,7 @@ def parse_args(argv: List[str]) -> Config:
     parser.add_argument("--duo-review", action="store_true")
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--oc", action="store_true")
+    parser.add_argument("--droid", action="store_true")
     parser.add_argument("--command", dest="codex_command_name")
     parser.add_argument("--review-base", dest="review_base")
     parser.add_argument("--tmux-socket", dest="tmux_socket")
@@ -97,6 +99,8 @@ def parse_args(argv: List[str]) -> Config:
         agent_cmd = "amp"
     elif args.oc:
         agent_cmd = "oc"
+    elif args.droid:
+        agent_cmd = "droid"
 
     if args.duo and args.duo_review:
         raise SystemExit("--duo and --duo-review cannot be used together")
