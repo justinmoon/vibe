@@ -74,26 +74,38 @@ def _prompt_for_branch_selection(branches: list[str], default_branch: str, curre
         if branch not in seen:
             ordered.append(branch)
 
-    while True:
-        print("Select a branch to base the new worktree on:")
-        for idx, branch in enumerate(ordered, start=1):
-            tags: list[str] = []
-            if branch == default_branch:
-                tags.append("default")
-            if current and branch == current:
-                tags.append("current")
-            suffix = f" ({', '.join(tags)})" if tags else ""
-            print(f"  {idx}. {branch}{suffix}")
-        choice = input(f"Enter number or branch name [{default_branch}]: ").strip()
-        if not choice:
+    # Prepare display options with tags
+    display_options = []
+    for branch in ordered:
+        tags: list[str] = []
+        if branch == default_branch:
+            tags.append("default")
+        if current and branch == current:
+            tags.append("current")
+        suffix = f" ({', '.join(tags)})" if tags else ""
+        display_options.append(f"{branch}{suffix}")
+    
+    # Use fzf for selection
+    try:
+        result = subprocess.run(
+            ["fzf", "--prompt", "Select a branch to base the new worktree on: "],
+            input="\n".join(display_options),
+            text=True,
+            capture_output=True,
+        )
+        
+        if result.returncode == 0:
+            selected_display = result.stdout.strip()
+            # Extract branch name (before the tags)
+            branch_name = selected_display.split(" (")[0]
+            return branch_name
+        else:
+            # User cancelled, return default
             return default_branch
-        if choice.isdigit():
-            index = int(choice) - 1
-            if 0 <= index < len(ordered):
-                return ordered[index]
-        elif choice in ordered:
-            return choice
-        print(f"Invalid selection '{choice}'. Please try again.")
+    except FileNotFoundError:
+        from .output import error_exit
+        error_exit("Error: fzf not found. Please install fzf.")
+        return default_branch
 
 
 def determine_source_ref(cfg: Config) -> str:
