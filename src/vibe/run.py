@@ -270,6 +270,13 @@ def run_duo_review(cfg: Config) -> None:
         os.chdir(project)
 
     ensure_git_repo()
+    
+    # Get the agents for review mode
+    if cfg.duo_agents and len(cfg.duo_agents) == 6:
+        agent1, agent2, model1, model2, reasoning1, reasoning2 = cfg.duo_agents
+    else:
+        # Fallback to default claude+codex
+        agent1, agent2, model1, model2, reasoning1, reasoning2 = "claude", "codex", None, None, None, None
 
     base, claude_branch, claude_path, codex_branch, codex_path = resolve_review_target(cfg.review_base)
 
@@ -291,8 +298,8 @@ def run_duo_review(cfg: Config) -> None:
     send_keys(right_pane, "C-m")
     time.sleep(0.1)
 
-    set_pane_title(left_pane, "claude")
-    set_pane_title(right_pane, "codex")
+    set_pane_title(left_pane, agent1)
+    set_pane_title(right_pane, agent2)
 
     review_prompt = cfg.prompt or "Review the completed work, list issues, missing tests, and merge readiness."
     if not cfg.prompt and original_prompt:
@@ -309,23 +316,27 @@ def run_duo_review(cfg: Config) -> None:
     if cfg.prompt:
         shared_context += "\n\nReview prompt:\n```\n" + cfg.prompt.strip() + "\n```"
 
-    claude_context = shared_context + (
+    agent1_context = shared_context + (
+        f" You are the {agent1} agent reviewing the work."
         " Focus on high-level reasoning, risks, and recommended follow-ups."
-        " Make an explicit recommendation: choose claude's branch, codex's branch, or a mix, and justify why."
+        f" Make an explicit recommendation: choose {agent1}'s branch, {agent2}'s branch, or a mix, and justify why."
     )
-    codex_context = shared_context + (
+    agent2_context = shared_context + (
+        f" You are the {agent2} agent reviewing the work."
         " Focus on concrete diffs, reproduction steps, and actionable fixes."
         " Identify exact commits/files to cherry-pick if a hybrid approach is best, and note any merge hazards."
     )
 
-    claude_cmd = build_claude_command(claude_context, review_prompt)
-    codex_cmd = build_codex_command(codex_context, review_prompt, cfg.codex_command_name, None, None)
+    agent1_cmd = build_command_for_agent(agent1, agent1_context, review_prompt, cfg.codex_command_name, model1, reasoning1 if agent1 in ["codex", "droid"] else None)
+    agent2_cmd = build_command_for_agent(agent2, agent2_context, review_prompt, cfg.codex_command_name, model2, reasoning2 if agent2 in ["codex", "droid"] else None)
 
-    send_keys(left_pane, claude_cmd, "C-m")
-    send_keys(right_pane, codex_cmd, "C-m")
+    send_keys(left_pane, agent1_cmd, "C-m")
+    send_keys(right_pane, agent2_cmd, "C-m")
 
     success(
-        "\u2713 Started review for base '%s' (claude left, codex right) in window: %s",
+        "\u2713 Started review for base '%s' (%s left, %s right) in window: %s",
         base,
+        agent1,
+        agent2,
         window_id,
     )

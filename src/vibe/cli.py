@@ -133,6 +133,10 @@ def main(argv: List[str] | None = None) -> None:
     session_name = get_session_name(cfg.session_name)
 
     if not cfg.prompt:
+        # Review mode doesn't require a prompt
+        if cfg.agent_mode == "review":
+            run_duo_review(cfg)
+            return
         # If user went through agent selection but didn't provide a prompt, show error
         if selection:
             from .output import error_exit

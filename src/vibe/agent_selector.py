@@ -212,20 +212,20 @@ def prompt_agent_selection() -> Optional[Tuple[str, Union[Tuple[str, Optional[st
     Main function to prompt for agent selection.
     Returns: (mode, agents_info) where mode is 'single', 'duo', or 'review'
             and agents_info varies by mode:
-            - single/review: (agent, model) 
-            - duo: (agent1, agent2, model1, model2)
+            - single: (agent, model, reasoning)
+            - duo/review: (agent1, agent2, model1, model2, reasoning1, reasoning2)
     """
     mode = select_agent_mode()
     if not mode:
         return None
     
-    if mode == "duo":
+    if mode in ["duo", "review"]:
         duo_selection = select_agents_for_duo()
         if not duo_selection:
             return None
         return mode, duo_selection
     else:
-        # For single and review modes, select the primary agent
+        # For single mode, select the primary agent
         agent = select_single_agent()
         if not agent:
             return None
