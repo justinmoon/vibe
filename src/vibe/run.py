@@ -278,20 +278,20 @@ def run_duo_review(cfg: Config) -> None:
         # Fallback to default claude+codex
         agent1, agent2, model1, model2, reasoning1, reasoning2 = "claude", "codex", None, None, None, None
 
-    base, claude_branch, claude_path, codex_branch, codex_path = resolve_review_target(cfg.review_base)
+    base, branch1, path1, branch2, path2 = resolve_review_target(cfg.review_base)
 
     original_prompt = read_duo_prompt(base)
 
-    run_init_script(claude_path)
-    if codex_path != claude_path:
-        run_init_script(codex_path)
+    run_init_script(path1)
+    if path2 != path1:
+        run_init_script(path2)
 
     window_name = f"{base}-review"
-    window_id = new_window(window_name, claude_path)
+    window_id = new_window(window_name, path1)
     left_pane = current_pane(window_id)
-    right_pane = split_window(window_id, cwd=codex_path)
+    right_pane = split_window(window_id, cwd=path2)
 
-    set_window_dir(window_id, claude_path)
+    set_window_dir(window_id, path1)
 
     send_keys(left_pane, "C-m")
     time.sleep(0.1)
@@ -305,10 +305,10 @@ def run_duo_review(cfg: Config) -> None:
     if not cfg.prompt and original_prompt:
         info("Original duo prompt:\n%s", original_prompt)
     shared_context = (
-        f"You are reviewing existing work for feature base '{base}'. The claude worktree is located at {claude_path} "
-        f"on branch '{claude_branch}', and the codex worktree is located at {codex_path} on branch '{codex_branch}'. "
-        "Inspect the changes, run git commands as needed, and provide clear feedback on quality, correctness, and next steps."\
-        " Compare both branches: identify which implementation is stronger, where one outperforms the other, and whether "
+        f"You are reviewing existing work for feature base '{base}'. The first worktree is located at {path1} "
+        f"on branch '{branch1}', and the second worktree is located at {path2} on branch '{branch2}'. "
+        "Inspect the changes, run git commands as needed, and provide clear feedback on quality, correctness, and next steps. "
+        "Compare both branches: identify which implementation is stronger, where one outperforms the other, and whether "
         "a hybrid (combining specific commits or files) would deliver the best result."
     )
     if original_prompt:

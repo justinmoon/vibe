@@ -141,31 +141,36 @@ def list_worktree_branches() -> Dict[str, Path]:
 def list_duo_targets() -> Dict[str, Tuple[str, Path, str, Path]]:
     branches = list_worktree_branches()
     pairs: Dict[str, Tuple[str, Path, str, Path]] = {}
-    claude_map: Dict[str, Path] = {}
-    codex_map: Dict[str, Path] = {}
-
+    
+    # Known agent suffixes to look for
+    agent_suffixes = ["-claude", "-codex", "-droid", "-oc", "-amp"]
+    
+    # Group branches by base name
+    base_map: Dict[str, Dict[str, Tuple[str, Path]]] = {}
+    
     for branch, path in branches.items():
-        if branch.endswith("-claude"):
-            base = branch[: -len("-claude")]
-            claude_map[base] = path
-        elif branch.endswith("-codex"):
-            base = branch[: -len("-codex")]
-            codex_map[base] = path
-
-    for base, claude_path in claude_map.items():
-        codex_path = codex_map.get(base)
-        if codex_path is not None:
-            pairs[base] = (
-                f"{base}-claude",
-                claude_path,
-                f"{base}-codex",
-                codex_path,
-            )
+        # Check if branch ends with any agent suffix
+        for suffix in agent_suffixes:
+            if branch.endswith(suffix):
+                base = branch[: -len(suffix)]
+                agent = suffix[1:]  # Remove leading dash
+                if base not in base_map:
+                    base_map[base] = {}
+                base_map[base][agent] = (branch, path)
+                break
+    
+    # Find bases that have exactly 2 agents
+    for base, agents in base_map.items():
+        if len(agents) == 2:
+            agent_list = sorted(agents.items())
+            agent1_name, (branch1, path1) = agent_list[0]
+            agent2_name, (branch2, path2) = agent_list[1]
+            pairs[base] = (branch1, path1, branch2, path2)
 
     return pairs
 
 
-def resolve_review_target(base_hint: Optional[str]) -> Tuple[str, Path, str, Path, str]:
+def resolve_review_target(base_hint: Optional[str]) -> Tuple[str, str, Path, str, Path]:
     targets = list_duo_targets()
     if base_hint:
         match = targets.get(base_hint)
@@ -174,8 +179,8 @@ def resolve_review_target(base_hint: Optional[str]) -> Tuple[str, Path, str, Pat
                 "Error: No duo worktree pair found for base '%s'. Pass a different base or run --duo first.",
                 base_hint,
             )
-        claude_branch, claude_path, codex_branch, codex_path = match
-        return base_hint, claude_branch, claude_path, codex_branch, codex_path
+        branch1, path1, branch2, path2 = match
+        return base_hint, branch1, path1, branch2, path2
 
     if not targets:
         error_exit(
@@ -183,22 +188,28 @@ def resolve_review_target(base_hint: Optional[str]) -> Tuple[str, Path, str, Pat
         )
 
     if len(targets) == 1:
-        base, (claude_branch, claude_path, codex_branch, codex_path) = next(iter(targets.items()))
-        return base, claude_branch, claude_path, codex_branch, codex_path
+        base, (branch1, path1, branch2, path2) = next(iter(targets.items()))
+        return base, branch1, path1, branch2, path2
 
     if sys.stdin.isatty():
         options = sorted(targets.keys())
-        print("Select a duo worktree base to review:")
-        for idx, base in enumerate(options, start=1):
-            print(f"  {idx}. {base}")
-        choice = input("Enter number: ").strip()
-        if choice.isdigit():
-            index = int(choice) - 1
-            if 0 <= index < len(options):
-                selected = options[index]
-                claude_branch, claude_path, codex_branch, codex_path = targets[selected]
-                return selected, claude_branch, claude_path, codex_branch, codex_path
-        error_exit("Error: Invalid selection for review base")
+        # Use fzf for selection
+        try:
+            result = subprocess.run(
+                ["fzf", "--prompt", "Select a duo worktree base to review: "],
+                input="\n".join(options),
+                text=True,
+                capture_output=True,
+            )
+            
+            if result.returncode == 0:
+                selected = result.stdout.strip()
+                branch1, path1, branch2, path2 = targets[selected]
+                return selected, branch1, path1, branch2, path2
+            else:
+                error_exit("Error: No review base selected")
+        except FileNotFoundError:
+            error_exit("Error: fzf not found. Please install fzf.")
 
     error_exit(
         "Error: Multiple duo worktrees found (%s). Provide --review-base to disambiguate.",
