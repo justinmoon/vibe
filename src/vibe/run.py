@@ -9,6 +9,7 @@ from .branch_selector import select_branch_name
 from .config import Config
 from .gitops import current_branch, determine_source_ref, ensure_git_repo, pull_latest_changes, run_init_script
 from .output import error_exit, info, success
+from .usage_tracker import commit_usage_increments
 from .tmux import (
     current_pane,
     new_window,
@@ -84,6 +85,9 @@ def run_no_worktree(cfg: Config) -> None:
     command = build_command_for_agent(cfg.agent_cmd, context, cfg.prompt, cfg.codex_command_name, model, reasoning_effort)
     send_keys(window_id, command, "C-m")
 
+    # Commit usage tracking after successful launch
+    commit_usage_increments()
+    
     success("\u2713 Successfully started %s in current directory in window: %s", cfg.agent_cmd, window_id)
 
 
@@ -128,6 +132,9 @@ def run_with_worktree(cfg: Config) -> None:
     command = build_command_for_agent(cfg.agent_cmd, context, cfg.prompt, cfg.codex_command_name, model, reasoning_effort)
     send_keys(window_id, command, "C-m")
 
+    # Commit usage tracking after successful launch
+    commit_usage_increments()
+    
     success("\u2713 Successfully created worktree and started %s in window: %s", cfg.agent_cmd, window_id)
 
 
@@ -189,6 +196,9 @@ def run_duo_no_worktree(cfg: Config) -> None:
     send_keys(left_pane, agent1_cmd, "C-m")
     send_keys(right_pane, agent2_cmd, "C-m")
 
+    # Commit usage tracking after successful launch
+    commit_usage_increments()
+    
     success("\u2713 Started %s (left) and %s (right) in window: %s", agent1, agent2, window_id)
 
 
@@ -250,6 +260,9 @@ def run_duo_with_worktrees(cfg: Config) -> None:
     send_keys(left_pane, agent1_cmd, "C-m")
     send_keys(right_pane, agent2_cmd, "C-m")
 
+    # Commit usage tracking after successful launch
+    commit_usage_increments()
+    
     success(
         "\u2713 Started %s (left) on %s and %s (right) on %s in window: %s",
         agent1,
@@ -333,6 +346,9 @@ def run_duo_review(cfg: Config) -> None:
     send_keys(left_pane, agent1_cmd, "C-m")
     send_keys(right_pane, agent2_cmd, "C-m")
 
+    # Commit usage tracking after successful launch
+    commit_usage_increments()
+    
     success(
         "\u2713 Started review for base '%s' (%s left, %s right) in window: %s",
         base,

@@ -12,6 +12,7 @@ from .agent_selector import prompt_agent_selection
 from .args import parse_args
 from .config import Config
 from .run import run_duo, run_duo_review, run_single
+from .usage_tracker import init_session
 from .tmux import (
     attach_session,
     configure_tmux,
@@ -85,6 +86,9 @@ def main(argv: List[str] | None = None) -> None:
     
     # If no agent flags provided, prompt for agent selection
     if not has_agent_flags:
+        # Initialize usage tracking session
+        init_session()
+        
         selection = prompt_agent_selection()
         if not selection:
             return

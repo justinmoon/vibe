@@ -7,6 +7,7 @@ from typing import List, Optional, Tuple, Union
 
 from .model_selector import select_model, select_reasoning_effort
 from .output import error_exit
+from .usage_tracker import queue_increment, get_sorted_by_usage, get_usage_count
 
 
 def get_available_agents() -> List[str]:
@@ -34,69 +35,33 @@ def get_available_agents() -> List[str]:
     return sorted(agents)
 
 
-def get_usage_config_path() -> Path:
-    """Get path to vibe usage config directory."""
-    config_dir = Path.home() / ".config" / "vibe"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    return config_dir / "usage.json"
 
 
-def load_usage_data() -> dict:
-    """Load usage data from config file."""
-    config_path = get_usage_config_path()
-    if not config_path.exists():
-        return {"agents": {}, "modes": {}}
+
+def run_fzf_selection(
+    options: List[str], 
+    prompt: str = "Select", 
+    multi: bool = False, 
+    category: str | None = None,
+    track_usage: bool = True
+) -> List[str]:
+    """Run fzf to let user select from options.
     
-    try:
-        with open(config_path, 'r') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return {"agents": {}, "modes": {}}
-
-
-def save_usage_data(usage_data: dict) -> None:
-    """Save usage data to config file."""
-    config_path = get_usage_config_path()
-    try:
-        with open(config_path, 'w') as f:
-            json.dump(usage_data, f, indent=2)
-    except IOError:
-        pass  # Silently fail if we can't save
-
-
-def increment_usage(category: str, item: str) -> None:
-    """Increment usage count for an item in a category."""
-    usage_data = load_usage_data()
-    if category not in usage_data:
-        usage_data[category] = {}
-    usage_data[category][item] = usage_data[category].get(item, 0) + 1
-    save_usage_data(usage_data)
-
-
-def sort_by_usage(items: List[str], category: str) -> List[str]:
-    """Sort items by usage frequency, most used first."""
-    usage_data = load_usage_data()
-    category_data = usage_data.get(category, {})
-    
-    def sort_key(item):
-        # Sort by usage count (descending), then by item name
-        return (-category_data.get(item, 0), item)
-    
-    return sorted(items, key=sort_key)
-
-
-def run_fzf_selection(options: List[str], prompt: str = "Select", multi: bool = False, category: str | None = None) -> List[str]:
-    """Run fzf to let user select from options."""
+    Args:
+        options: List of options to display
+        prompt: Prompt text for fzf
+        multi: Allow multiple selections
+        category: Category for usage tracking (e.g., "agents", "models")
+        track_usage: Whether to track usage (default: True)
+    """
     # Sort by usage if category is provided
-    if category:
-        options = sort_by_usage(options, category)
+    if category and track_usage:
+        options = get_sorted_by_usage(options, category)
         
         # Add usage count to display
-        usage_data = load_usage_data()
-        category_data = usage_data.get(category, {})
         display_options = []
         for option in options:
-            count = category_data.get(option, 0)
+            count = get_usage_count(category, option)
             if count > 0:
                 display_options.append(f"{option} (used {count} times)")
             else:
@@ -120,10 +85,10 @@ def run_fzf_selection(options: List[str], prompt: str = "Select", multi: bool = 
             selected = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
             # Extract original option names (remove usage count if present)
             selected = [s.split(" (used")[0] for s in selected]
-            # Track usage
-            if category:
+            # Queue usage tracking (will be committed after successful launch)
+            if category and track_usage:
                 for item in selected:
-                    increment_usage(category, item)
+                    queue_increment(category, item)
             return selected
         else:
             return []
