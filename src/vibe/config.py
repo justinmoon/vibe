@@ -28,5 +28,6 @@ class Config:
     editor: str = DEFAULT_EDITOR
     tmux_socket: Optional[str] = None
     review_base: Optional[str] = None
-    duo_agents: Optional[tuple[str, str, Optional[str], Optional[str]]] = None  # For duo mode: (agent1, agent2, model1, model2)
-    selected_model: Optional[str] = None  # For single agent mode when agent is oc
+    duo_agents: Optional[tuple[str, str, Optional[str], Optional[str], Optional[str], Optional[str]]] = None  # For duo mode: (agent1, agent2, model1, model2, reasoning1, reasoning2)
+    selected_model: Optional[str] = None  # For single agent mode when agent is oc/codex/droid
+    selected_reasoning_effort: Optional[str] = None  # For codex reasoning effort

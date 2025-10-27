@@ -26,20 +26,20 @@ from .worktree import (
 )
 
 
-def build_command_for_agent(agent: str, context: str, prompt: str, codex_command_name: str | None = None, model: str | None = None) -> str:
+def build_command_for_agent(agent: str, context: str, prompt: str, codex_command_name: str | None = None, model: str | None = None, reasoning_effort: str | None = None) -> str:
     """Build the appropriate command for any agent."""
     if agent == "claude":
         return build_claude_command(context, prompt)
     elif agent == "codex":
-        return build_codex_command(context, prompt, codex_command_name, model)
+        return build_codex_command(context, prompt, codex_command_name, model, reasoning_effort)
     elif agent == "oc":
         return build_oc_command(context, prompt, model)
     elif agent == "droid":
-        return build_droid_command(context, prompt, model)
+        return build_droid_command(context, prompt, model, reasoning_effort)
     else:
         # Fallback to generic command building
         agent_flags = get_agent_flags(agent)
-        return build_agent_command(agent, agent_flags, context, prompt, codex_command_name, model)
+        return build_agent_command(agent, agent_flags, context, prompt, codex_command_name, model, reasoning_effort)
 
 
 def run_single(cfg: Config) -> None:
@@ -78,9 +78,10 @@ def run_no_worktree(cfg: Config) -> None:
         "Please be mindful that any changes you make will affect the current working directory."
     )
 
-    # Handle model selection for agents that support it
+    # Handle model and reasoning effort selection for agents that support it
     model = getattr(cfg, 'selected_model', None)
-    command = build_command_for_agent(cfg.agent_cmd, context, cfg.prompt, cfg.codex_command_name, model)
+    reasoning_effort = getattr(cfg, 'selected_reasoning_effort', None)
+    command = build_command_for_agent(cfg.agent_cmd, context, cfg.prompt, cfg.codex_command_name, model, reasoning_effort)
     send_keys(window_id, command, "C-m")
 
     success("\u2713 Successfully started %s in current directory in window: %s", cfg.agent_cmd, window_id)
@@ -121,9 +122,10 @@ def run_with_worktree(cfg: Config) -> None:
         "your changes are isolated to this feature branch."
     )
 
-    # Handle model selection for agents that support it
+    # Handle model and reasoning effort selection for agents that support it
     model = getattr(cfg, 'selected_model', None)
-    command = build_command_for_agent(cfg.agent_cmd, context, cfg.prompt, cfg.codex_command_name, model)
+    reasoning_effort = getattr(cfg, 'selected_reasoning_effort', None)
+    command = build_command_for_agent(cfg.agent_cmd, context, cfg.prompt, cfg.codex_command_name, model, reasoning_effort)
     send_keys(window_id, command, "C-m")
 
     success("\u2713 Successfully created worktree and started %s in window: %s", cfg.agent_cmd, window_id)
@@ -153,11 +155,11 @@ def run_duo_no_worktree(cfg: Config) -> None:
     run_init_script(cwd)
 
     # Get the agents for duo mode
-    if cfg.duo_agents and len(cfg.duo_agents) == 4:
-        agent1, agent2, model1, model2 = cfg.duo_agents
+    if cfg.duo_agents and len(cfg.duo_agents) == 6:
+        agent1, agent2, model1, model2, reasoning1, reasoning2 = cfg.duo_agents
     else:
         # Fallback to default claude+codex
-        agent1, agent2, model1, model2 = "claude", "codex", None, None
+        agent1, agent2, model1, model2, reasoning1, reasoning2 = "claude", "codex", None, None, None, None
 
     window_name = f"{branch_name}-duo"
     window_id = new_window(window_name, cwd)
@@ -181,8 +183,8 @@ def run_duo_no_worktree(cfg: Config) -> None:
     agent1_context = f"{shared_context} You are the {agent1} agent."
     agent2_context = f"{shared_context} You are the {agent2} agent."
 
-    agent1_cmd = build_command_for_agent(agent1, agent1_context, cfg.prompt, cfg.codex_command_name, model1)
-    agent2_cmd = build_command_for_agent(agent2, agent2_context, cfg.prompt, cfg.codex_command_name, model2)
+    agent1_cmd = build_command_for_agent(agent1, agent1_context, cfg.prompt, cfg.codex_command_name, model1, reasoning1 if agent1 in ["codex", "droid"] else None)
+    agent2_cmd = build_command_for_agent(agent2, agent2_context, cfg.prompt, cfg.codex_command_name, model2, reasoning2 if agent2 in ["codex", "droid"] else None)
 
     send_keys(left_pane, agent1_cmd, "C-m")
     send_keys(right_pane, agent2_cmd, "C-m")
@@ -192,11 +194,11 @@ def run_duo_no_worktree(cfg: Config) -> None:
 
 def run_duo_with_worktrees(cfg: Config) -> None:
     # Get the agents for duo mode
-    if cfg.duo_agents and len(cfg.duo_agents) == 4:
-        agent1, agent2, model1, model2 = cfg.duo_agents
+    if cfg.duo_agents and len(cfg.duo_agents) == 6:
+        agent1, agent2, model1, model2, reasoning1, reasoning2 = cfg.duo_agents
     else:
         # Fallback to default claude+codex
-        agent1, agent2, model1, model2 = "claude", "codex", None, None
+        agent1, agent2, model1, model2, reasoning1, reasoning2 = "claude", "codex", None, None, None, None
     
     if cfg.branch_name:
         from .worktree import validate_branch_name
@@ -242,8 +244,8 @@ def run_duo_with_worktrees(cfg: Config) -> None:
         f"in the main repository root (outside this worktree). Another agent ({agent1}) is simultaneously working on '{agent1_branch}'."
     )
 
-    agent1_cmd = build_command_for_agent(agent1, agent1_context, cfg.prompt, cfg.codex_command_name, model1)
-    agent2_cmd = build_command_for_agent(agent2, agent2_context, cfg.prompt, cfg.codex_command_name, model2)
+    agent1_cmd = build_command_for_agent(agent1, agent1_context, cfg.prompt, cfg.codex_command_name, model1, reasoning1 if agent1 in ["codex", "droid"] else None)
+    agent2_cmd = build_command_for_agent(agent2, agent2_context, cfg.prompt, cfg.codex_command_name, model2, reasoning2 if agent2 in ["codex", "droid"] else None)
 
     send_keys(left_pane, agent1_cmd, "C-m")
     send_keys(right_pane, agent2_cmd, "C-m")
@@ -317,7 +319,7 @@ def run_duo_review(cfg: Config) -> None:
     )
 
     claude_cmd = build_claude_command(claude_context, review_prompt)
-    codex_cmd = build_codex_command(codex_context, review_prompt, cfg.codex_command_name)
+    codex_cmd = build_codex_command(codex_context, review_prompt, cfg.codex_command_name, None, None)
 
     send_keys(left_pane, claude_cmd, "C-m")
     send_keys(right_pane, codex_cmd, "C-m")

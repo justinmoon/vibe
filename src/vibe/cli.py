@@ -114,14 +114,15 @@ def main(argv: List[str] | None = None) -> None:
     # Set duo agents if they were selected
     if selection:
         mode, agents_info = selection
-        if mode == "duo" and agents_info and len(agents_info) == 4:
+        if mode == "duo" and agents_info and len(agents_info) == 6:
             cfg.duo_agents = agents_info
-        elif mode in ["single", "review"] and agents_info and len(agents_info) == 2:
-            # For single/review mode, agents_info is (agent, model)
-            agent, model = agents_info
-            if agent == "oc" and model:
-                # Store model in a way that can be accessed later
+        elif mode in ["single", "review"] and agents_info and len(agents_info) == 3:
+            # For single/review mode, agents_info is (agent, model, reasoning)
+            agent, model, reasoning = agents_info
+            if model:
                 cfg.selected_model = model
+            if reasoning:
+                cfg.selected_reasoning_effort = reasoning
     
     configure_tmux(cfg.tmux_socket)
 
@@ -132,6 +133,10 @@ def main(argv: List[str] | None = None) -> None:
     session_name = get_session_name(cfg.session_name)
 
     if not cfg.prompt:
+        # If user went through agent selection but didn't provide a prompt, show error
+        if selection:
+            from .output import error_exit
+            error_exit("Error: No prompt provided. Usage: vibe \"your task description\"")
         handle_session_only(session_name)
         return
 

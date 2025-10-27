@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
-from .model_selector import select_model
+from .model_selector import select_model, select_reasoning_effort
 from .output import error_exit
 
 
@@ -159,10 +159,15 @@ def select_agents_for_duo() -> Optional[Tuple[str, str, Optional[str], Optional[
     
     # Select model for first agent if needed
     first_model = None
+    first_reasoning = None
     if first_agent in ["oc", "codex", "droid"]:
         first_model = select_model(first_agent)
         if not first_model:
             return None
+        # Select reasoning effort for codex and droid (optional)
+        if first_agent in ["codex", "droid"]:
+            first_reasoning = select_reasoning_effort(first_model, first_agent)
+            # Reasoning effort is optional - continue even if None
     
     # Select second agent (allow same agent)
     selected_second = run_fzf_selection(agents, "Select second agent", multi=False, category="agents")
@@ -173,12 +178,17 @@ def select_agents_for_duo() -> Optional[Tuple[str, str, Optional[str], Optional[
     
     # Select model for second agent if needed
     second_model = None
+    second_reasoning = None
     if second_agent in ["oc", "codex", "droid"]:
         second_model = select_model(second_agent)
         if not second_model:
             return None
+        # Select reasoning effort for codex and droid (optional)
+        if second_agent in ["codex", "droid"]:
+            second_reasoning = select_reasoning_effort(second_model, second_agent)
+            # Reasoning effort is optional - continue even if None
     
-    return (first_agent, second_agent, first_model, second_model)
+    return (first_agent, second_agent, first_model, second_model, first_reasoning, second_reasoning)
 
 
 def select_agent_mode() -> Optional[str]:
@@ -222,9 +232,14 @@ def prompt_agent_selection() -> Optional[Tuple[str, Union[Tuple[str, Optional[st
         
         # If agent supports model selection, prompt for it
         selected_model = None
+        selected_reasoning = None
         if agent in ["oc", "codex", "droid"]:
             selected_model = select_model(agent)
             if not selected_model:
                 return None
+            # Select reasoning effort for codex and droid (optional)
+            if agent in ["codex", "droid"]:
+                selected_reasoning = select_reasoning_effort(selected_model, agent)
+                # Reasoning effort is optional - continue even if None
         
-        return mode, (agent, selected_model)
+        return mode, (agent, selected_model, selected_reasoning)

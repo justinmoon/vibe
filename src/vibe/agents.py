@@ -25,6 +25,7 @@ def build_agent_command(
     prompt: str,
     codex_command_name: str | None,
     model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     command_name = os.environ.get("VIBE_OC_BIN", "oc") if agent_cmd == "oc" else os.environ.get(f"VIBE_{agent_cmd.upper()}_BIN", agent_cmd)
     message = context if not prompt else f"{context}\n\n{prompt}"
@@ -44,19 +45,25 @@ def build_agent_command(
         # amp launches GUI with stdin
         command = f"cat {quoted_temp} | {command_name} {agent_flags}"
     elif agent_cmd == "codex":
-        # codex uses --model flag
+        # codex uses --model flag and -c for config overrides
         if model:
-            command = f"{command_name} {agent_flags} --model {shlex.quote(model)} \"$(cat {quoted_temp})\""
+            command = f"{command_name} {agent_flags} --model {shlex.quote(model)}"
         else:
-            command = f"{command_name} {agent_flags} \"$(cat {quoted_temp})\""
+            command = f"{command_name} {agent_flags}"
+        if reasoning_effort:
+            command = f"{command} -c model_reasoning_effort={shlex.quote(reasoning_effort)}"
+        command = f"{command} \"$(cat {quoted_temp})\""
         if codex_command_name:
             command = f"{command} {shlex.quote(codex_command_name)}"
     elif agent_cmd == "droid":
-        # droid uses --model flag
+        # droid uses --model flag and -r for reasoning effort
         if model:
-            command = f"{command_name} {agent_flags} --model {shlex.quote(model)} \"$(cat {quoted_temp})\""
+            command = f"{command_name} {agent_flags} --model {shlex.quote(model)}"
         else:
-            command = f"{command_name} {agent_flags} \"$(cat {quoted_temp})\""
+            command = f"{command_name} {agent_flags}"
+        if reasoning_effort:
+            command = f"{command} -r {shlex.quote(reasoning_effort)}"
+        command = f"{command} \"$(cat {quoted_temp})\""
     else:
         # claude and other agents use flags format
         command = f"{command_name} {agent_flags} \"$(cat {quoted_temp})\""
@@ -65,16 +72,16 @@ def build_agent_command(
 
 
 def build_claude_command(context: str, prompt: str) -> str:
-    return build_agent_command("claude", get_agent_flags("claude"), context, prompt, None, None)
+    return build_agent_command("claude", get_agent_flags("claude"), context, prompt, None, None, None)
 
 
-def build_codex_command(context: str, prompt: str, codex_command_name: str | None, model: str | None = None) -> str:
-    return build_agent_command("codex", get_agent_flags("codex"), context, prompt, codex_command_name, model)
+def build_codex_command(context: str, prompt: str, codex_command_name: str | None, model: str | None = None, reasoning_effort: str | None = None) -> str:
+    return build_agent_command("codex", get_agent_flags("codex"), context, prompt, codex_command_name, model, reasoning_effort)
 
 
 def build_oc_command(context: str, prompt: str, model: str | None = None) -> str:
-    return build_agent_command("oc", get_agent_flags("oc"), context, prompt, None, model)
+    return build_agent_command("oc", get_agent_flags("oc"), context, prompt, None, model, None)
 
 
-def build_droid_command(context: str, prompt: str, model: str | None = None) -> str:
-    return build_agent_command("droid", get_agent_flags("droid"), context, prompt, None, model)
+def build_droid_command(context: str, prompt: str, model: str | None = None, reasoning_effort: str | None = None) -> str:
+    return build_agent_command("droid", get_agent_flags("droid"), context, prompt, None, model, reasoning_effort)
