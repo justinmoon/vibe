@@ -15,7 +15,7 @@ def get_agent_flags(agent_cmd: str) -> str:
         return ""  # opencode doesn't use flags, uses "run" command
     elif agent_cmd == "droid":
         return "--dangerously-allow-all"
-    return "--dangerously-allow-all"
+    return "--dangerously-skip-permissions"
 
 
 def build_agent_command(
